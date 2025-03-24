@@ -6,22 +6,32 @@ router.use(express.json());
 
 
 router.post("/", async (req, res) => {
-    const { id_pedido, tipo_pagamento, Total } = req.body;
+    const { id_pedido, tipo_pagamento } = req.body;
 
-    if (!id_pedido || !tipo_pagamento || !Total) {
+    if (!id_pedido || !tipo_pagamento) {
         return res.status(400).json({ mensagem: "Todos os campos são obrigatórios" });
     }
 
     try {
+        const totalQuery = `
+            SELECT SUM(item.quantidade * prod.preco) AS total 
+            FROM itens_pedido item 
+            JOIN produtos prod ON item.id_produto = prod.id_produto 
+            WHERE item.id_pedido = ?;
+        `;
 
-        const itens_pedido=
-        " SELECT  SUM(Item.quantidade * prod.preco) AS Total FROM Itens_pedido Item JOIN produtos prod on p.id_produto= prod.id_produtos  ";
+        const [resultado1] = await conexao.promise().query(totalQuery, [id_pedido]);
+        const valor_total = resultado1[0].total || 0;
 
+        if (valor_total === 0) {
+            return res.status(400).json({ mensagem: "O pedido não possui itens válidos." });
+        }
 
+       
         const sql = "INSERT INTO pagamentos (id_pedido, tipo_pagamento, valor_total) VALUES (?, ?, ?)";
-        const [resultado] = await conexao.promise().query(sql, [id_pedido, tipo_pagamento, Total]);
+        await conexao.promise().query(sql, [id_pedido, tipo_pagamento, valor_total]);
 
-        return res.status(201).json({ mensagem: "Pagamento efetuado com sucesso!" });
+        return res.status(201).json({ mensagem: "Pagamento efetuado com sucesso!", valor_total });
     } catch (error) {
         return res.status(500).json({ mensagem: "Erro ao fazer pagamento", erro: error.message });
     }

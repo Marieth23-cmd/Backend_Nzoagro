@@ -1,9 +1,10 @@
 const express = require ("express");
 const router = express.Router();
 const conexao = require("./database"); 
-const bcrypt= require("bcryptjs") ;
+const { autenticarToken } = require("./mildwaretoken");
 const senhaValida=/^[a-zA-Z0-9!@#$%^&*]{6,12}$/
 const numeroAngola=/^9\d{8}$/
+ const bcrypt= require("bcryptjs")
 
 
 router.use(express.json());
@@ -31,8 +32,8 @@ router.get("/", async (req, res) => {
 
       
     FROM usuarios user
-    LEFT JOIN contacto ON user.id_usuario = contacto.id_contacto
-    LEFT JOIN endereco ON user.id_usuario= endereco.id_enedereco  WHERE user.status="ativo" `
+    LEFT JOIN contacto ON user.id_usuario = contacto.id_usuario
+    LEFT JOIN endereco ON user.id_usuario= endereco.id_usuario  WHERE user.status="ativo" `
     
 
         ); 
@@ -83,8 +84,8 @@ router.get("/:id", async (req, res) => {
        
 
     FROM usuarios user
-    LEFT JOIN contacto ON user.id_usuario = contacto.id_contacto
-    LEFT JOIN endereco ON user.id_usuario= endereco.id_enedereco WHERE user.id_usuario = ? AND user.status="ativo"  `
+    LEFT JOIN contacto ON user.id_usuario = contacto.id_usuario
+    LEFT JOIN endereco ON user.id_usuario= endereco.id_usuario WHERE user.id_usuario = ? AND user.status="ativo"  `
     
   ;
 
@@ -95,7 +96,7 @@ router.get("/:id", async (req, res) => {
         }
          
         let usuario=usuarios[0]
-        if(usuario.tipo_usuario==="Comprador"){ 
+        if (usuario.tipo_usuario.trim().toLowerCase() === "comprador") { 
             delete usuario.rua
             delete usuario.provincia
             delete usuario.bairro
@@ -119,9 +120,8 @@ router.get("/:id", async (req, res) => {
 
 
 router.post("/", async (req, res) => {
-    const { nome, email, senha, descricao, foto, tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
-    const novoUsuario = { nome, email, senha, descricao, foto, tipo_usuario };
-
+    const { nome, email, senha, descricao, data_criacao, foto, tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
+    
     try {
         if (!nome || !senha || !tipo_usuario || !contacto || !email) {
             return res.status(401).json({
@@ -139,8 +139,8 @@ router.post("/", async (req, res) => {
         }
 
         if (
-            tipo_usuario !== "Fornecedor" && 
-            tipo_usuario !== "Agricultor" && 
+            tipo_usuario.trim().toLowerCase !== "Fornecedor" && 
+            tipo_usuario.trim().toLowerCase !== "Agricultor" && 
             (rua !== undefined || provincia !== undefined || bairro !== undefined || municipio !== undefined || pais !== undefined)
         ) {
             return res.status(400).json({ message: "Apenas Fornecedores e Agricultores podem adicionar endereço padrão" });
@@ -155,36 +155,44 @@ router.post("/", async (req, res) => {
             return res.status(409).json({ message: "Este e-mail já está cadastrado. Tente outro." });
         }
 
-       
-        const [result] = await conexao.promise().query("INSERT INTO usuarios SET ?", novoUsuario);
-        const idUsuario = result.insertId;
+        const salt = await bcrypt.genSalt(10); // Gera um salt para a senha
+        const senhaCriptografada = await bcrypt.hash(senha, salt); // Criptografa a senha
 
-        
+        // Inserir no banco de dados
+        const [resultado] = await conexao.promise().query(
+            "INSERT INTO USUARIOS (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao) VALUES (?, ?, ?, ?,?,? , NOW())",
+            [nome, email, senhaCriptografada, tipo_usuario, foto, descricao , data_criacao]
+        );
+
+        const idUsuario = resultado.insertId; // Obtém o ID do usuário recém-criado
+
         await conexao.promise().query(
-            "INSERT INTO contacto (id_contacto, contacto) VALUES (?, ?)", 
+            "INSERT INTO contacto (id_usuario, contacto) VALUES (?, ?)", 
             [idUsuario, contacto]
         );
 
-               if (tipo_usuario === "Fornecedor" || tipo_usuario === "Agricultor") {
+        if (tipo_usuario === "Fornecedor" || tipo_usuario === "Agricultor") {
             await conexao.promise().query(
-                "INSERT INTO endereco (id_enedereco, rua, bairro, provincia, pais, municipio) VALUES (?, ?, ?, ?, ?, ?)", 
+                "INSERT INTO endereco (id_usuario, rua, bairro, provincia, pais, municipio) VALUES (?, ?, ?, ?, ?, ?)", 
                 [idUsuario, rua, bairro, provincia, pais, municipio]
             );
         }
 
         res.status(201).json({
-            message: "Conta criada com sucesso",
-            usuario: { id: idUsuario, ...novoUsuario }
+            message: "Conta criada com sucesso!",
+            usuario: { id: idUsuario, nome: nome.trim(), email: email.trim(), tipo_usuario }
         });
 
     } catch (error) {
+        console.error("Erro ao criar conta:", error);
         res.status(500).json({ message: "Erro ao criar conta", error });
     }
 });
 
 
 
-router.put("/:id", async (req, res) => {
+
+router.put("/:id",autenticarToken, async (req, res) => {
     const userId = req.params.id;
     const { 
         nome, email, senha, descricao, foto, tipo_usuario, 
@@ -236,13 +244,13 @@ router.put("/:id", async (req, res) => {
 
 
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", autenticarToken, async (req, res) => {
     const userid = req.params.id;
 
     try {
         const [result] = await conexao.promise().query( 
             "UPDATE usuarios SET status = 'desativado', data_exclusao = NOW() WHERE id_usuario = ?", 
-          ["desativado" ,userid]
+          [userid]
         );
 
         if (result.affectedRows > 0) {

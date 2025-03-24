@@ -1,11 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const conexao = require("./database"); 
+const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
 
 
-router.post("/:id_usuario/produtos", async (req, res) => {
+router.post("/:id_usuario/produtos", autenticarToken, autorizarUsuario(["Agricultor" ,"Fornecedor"]) ,async (req, res) => {
     try {
        // console.log("Dados recebidos no body:", req.body); 
 
@@ -37,7 +38,17 @@ router.post("/:id_usuario/produtos", async (req, res) => {
             [produtoid]
         );
 
-        res.status(201).json({ mensagem: "Produto criado com sucesso!", ID: produtoid });
+        res.status(201).json({ 
+            mensagem: "Produto criado com sucesso!", 
+            produto: {
+                id: produtoid,
+                nome,
+                descricao,
+                preco,
+                foto_produto,
+                categoria
+            } 
+        });
 
     } catch (erro) {
         console.error("Erro ao criar o produto:", erro);
@@ -50,7 +61,7 @@ router.post("/:id_usuario/produtos", async (req, res) => {
 
 
 
-router.get("/", async (req, res) => {
+router.get("/" ,async (req, res) => {
    
     const sql = `  SELECT * FROM produtos `;
     try {
@@ -82,7 +93,7 @@ router.get("/:id", async (req, res) => {
 });
 
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor "]) , async (req, res) => {
     const produtoId = req.params.id;
     const { nome, descricao, preco, quantidade, categoria } = req.body;
 
@@ -124,7 +135,7 @@ router.put("/:id", async (req, res) => {
     }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor "]) ,async (req, res) => {
     const produtoId = req.params.id;
     const sql = "DELETE FROM produtos WHERE id_produtos = ?";
 

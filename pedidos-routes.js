@@ -15,7 +15,7 @@ router.get("/", async (req, res) => {
             FROM pedidos p
             LEFT JOIN itens_pedido i ON p.id_pedido = i.pedidos_id
             LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-            ORDER BY p.data_pedido DESC
+            ORDER BY p.data_pedido DESCx
         `);
 
         if (pedidos.length === 0) {
@@ -87,6 +87,11 @@ router.post("/:id", async (req, res) => {
     const { estado, valor_total, rua, bairro, pais, municipio, referencia, provincia, numero, itens } = req.body;
 
     try {
+
+        if (!id_usuario || id_usuario == 0) {
+            return res.status(400).json({ message: "Usuário inválido" });
+        }
+        
         
         if (!itens || itens.length === 0) {
             return res.status(400).json({ message: "Não há produtos no pedido. Adicione itens antes de finalizar a compra." });
@@ -137,6 +142,41 @@ router.post("/:id", async (req, res) => {
         res.status(500).json({ message: "Erro ao enviar pedido", error: error.message });
     }
 });
+
+
+
+
+router.delete("/:id_pedido", async (req, res) => {
+    const id_pedido = req.params.id_pedido;
+
+    try {
+         await conexao.promise().query(`
+            DELETE FROM itens_pedido WHERE pedidos_id = ?
+        `, [id_pedido]);
+
+       
+        await conexao.promise().query(`
+            DELETE FROM endereco_pedidos WHERE id_pedido = ?
+        `, [id_pedido]);
+
+       
+        const [resultado] = await conexao.promise().query(`
+            DELETE FROM pedidos WHERE id_pedido = ?
+        `, [id_pedido]);
+
+        
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({ message: "Pedido não encontrado." });
+        }
+
+        res.status(200).json({ message: "Pedido excluído com sucesso!" });
+
+    } catch (error) {
+        console.error("Erro ao excluir pedido:", error);
+        res.status(500).json({ message: "Erro ao excluir pedido", error: error.message });
+    }
+});
+
 
 
 
