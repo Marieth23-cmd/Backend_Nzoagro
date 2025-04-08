@@ -1,4 +1,4 @@
-require("dotenv").config();
+cors:require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
@@ -12,7 +12,7 @@ app.use(cors({
 }));
 
 // Importando rotas
-const usuarios = require("./user-routes");
+const usuarios = require ("./user-routes");
 const produtos = require("./produtos-routes");
 const notificacoes = require("./notificacoes-routes");
 const pedidos = require("./pedidos-routes");
@@ -41,5 +41,5 @@ const PORTA = 4000;
 
 // Inicializando o servidor
 app.listen(PORTA, () => {
-    console.log(` O servidor está rodando na porta ${PORTA}`);
-});
+    console.log( `O servidor está rodando na porta ${PORTA}`);
+})

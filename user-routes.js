@@ -5,9 +5,18 @@ const { autenticarToken } = require("./mildwaretoken");
 const senhaValida=/^[a-zA-Z0-9!@#$%^&*]{6,12}$/
 const numeroAngola=/^9\d{8}$/
  const bcrypt= require("bcryptjs")
+ const multer=require("multer")
+ const path=require("path")
+ const fs = require("fs");
 
 
 router.use(express.json());
+
+// Certifica que a pasta "uploads" existe
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
 
 
 router.get("/", async (req, res) => {
@@ -63,7 +72,7 @@ router.get("/", async (req, res) => {
     }
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/me",autenticarToken, async (req, res) => {
     const userid = req.params.id;
     try {
         const sql =  `SELECT
@@ -119,9 +128,13 @@ router.get("/:id", async (req, res) => {
 
 
 
-router.post("/", async (req, res) => {
-    const { nome, email, senha, descricao, data_criacao, foto, tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
-    
+router.post("/", upload("foto"), async (req, res) => {
+    const { nome, email, senha, descricao, data_criacao, 
+         tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
+         const foto = req.file ? `/uploads/${req.file.filename}` : undefined;
+
+        console.log("entrou na função")
+        console.log("Dados enviados" , req.body)
     try {
         if (!nome || !senha || !tipo_usuario || !contacto || !email) {
             return res.status(401).json({
@@ -139,8 +152,8 @@ router.post("/", async (req, res) => {
         }
 
         if (
-            tipo_usuario.trim().toLowerCase !== "Fornecedor" && 
-            tipo_usuario.trim().toLowerCase !== "Agricultor" && 
+            tipo_usuario.trim().toLowerCase() !== "Fornecedor" && 
+            tipo_usuario.trim().toLowerCase() !== "Agricultor" && 
             (rua !== undefined || provincia !== undefined || bairro !== undefined || municipio !== undefined || pais !== undefined)
         ) {
             return res.status(400).json({ message: "Apenas Fornecedores e Agricultores podem adicionar endereço padrão" });
@@ -164,7 +177,7 @@ router.post("/", async (req, res) => {
             [nome, email, senhaCriptografada, tipo_usuario, foto, descricao , data_criacao]
         );
 
-        const idUsuario = resultado.insertId; // Obtém o ID do usuário recém-criado
+        const idUsuario = resultado.insertId;
 
         await conexao.promise().query(
             "INSERT INTO contacto (id_usuario, contacto) VALUES (?, ?)", 
@@ -178,26 +191,38 @@ router.post("/", async (req, res) => {
             );
         }
 
+    
         res.status(201).json({
             message: "Conta criada com sucesso!",
             usuario: { id: idUsuario, nome: nome.trim(), email: email.trim(), tipo_usuario }
         });
 
     } catch (error) {
-        console.error("Erro ao criar conta:", error);
+        console.log("Erro ao criar conta:", error);
         res.status(500).json({ message: "Erro ao criar conta", error });
     }
 });
 
 
 
+const storage=multer.diskStorage({
+    destination:(req , file , cb)=>{
+        cb(null ,uploadDir)
+    },
+    filename:(req ,file,ceb)=>{
+        cb(null , Date.now() + path.extname(file.originalname))
+    }
+})
+const upload=multer({storage})
 
-router.put("/:id",autenticarToken, async (req, res) => {
+router.put("/perfil",autenticarToken, upload.single("foto"), async (req, res) => {
     const userId = req.params.id;
     const { 
-        nome, email, senha, descricao, foto, tipo_usuario, 
+        nome, email, senha, descricao,  tipo_usuario, 
         contacto, rua, provincia, bairro, municipio, pais 
     } = req.body;
+    const foto=req.file? `/uploads/${req.file.filename}`:undefined // caminho da foto
+
 
     try {
         
@@ -209,6 +234,14 @@ router.put("/:id",autenticarToken, async (req, res) => {
             return res.status(404).json({ message: `Usuário com ID ${userId} não encontrado` });
         }
 
+        let senhaAtualizada = senha;
+        if (senha) {
+            if (!senhaValida.test(senha)) {
+                return res.status(400).json({ message: "Senha inválida" });
+            }
+            const salt = await bcrypt.genSalt(10);
+            senhaAtualizada = await bcrypt.hash(senha, salt);
+        }
         const userTipo = userResult[0].tipo_usuario; 
 
         
