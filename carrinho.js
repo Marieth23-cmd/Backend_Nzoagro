@@ -3,11 +3,20 @@ const router = express.Router();
 const conexao = require("./database");
 const { autenticarToken } = require("./mildwaretoken");
 
-// 1️⃣ Adicionar produto ao carrinho
+
 router.post("/adicionar", autenticarToken, async (req, res) => {
-    const { id_usuario, id_produto, quantidade } = req.body;
+    const {  id_produto, quantidade } = req.body;
+    const id_usuario = req.usuario.id_usuario;
+    console.log("Entrou na função")
+
+
 
     try {
+
+        if (quantidade < 1) {
+            return res.status(400).json({ mensagem: "A quantidade deve ser maior que zero." });
+        }
+        
         // Verificar se o carrinho já existe para o usuário
         let [carrinho] = await conexao.promise().query(
             "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
@@ -53,9 +62,9 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
     }
 });
 
-// 2️⃣ Listar os produtos do carrinho de um usuário
-router.get("/:id_usuario", autenticarToken, async (req, res) => {
-    const { id_usuario } = req.params;
+
+router.get("/", autenticarToken, async (req, res) => {
+    const id_usuario= req.usuario.id_usuario;
 
     try {
         const [carrinho] = await conexao.promise().query(
@@ -70,9 +79,9 @@ router.get("/:id_usuario", autenticarToken, async (req, res) => {
         const id_carrinho = carrinho[0].id_carrinho;
 
         const [produtos] = await conexao.promise().query(
-            `SELECT p.id, p.nome, p.preco, p.imagem, ci.quantidade 
+            `SELECT p.id, p.nome, p.preco, p.imagem, ci.quantidade , foto_produto
              FROM carrinho_itens ci 
-             JOIN produtos p ON ci.id_produto = p.id 
+             JOIN produtos p ON ci.id_produto = p.id_produtos 
              WHERE ci.id_carrinho = ?`,
             [id_carrinho]
         );
@@ -84,9 +93,12 @@ router.get("/:id_usuario", autenticarToken, async (req, res) => {
     }
 });
 
-// 3️⃣ Remover um produto específico do carrinho
-router.delete("/remover/:id_usuario/:id_produto", autenticarToken, async (req, res) => {
-    const { id_usuario, id_produto } = req.params;
+
+router.delete("/remover/:id_produto", autenticarToken, async (req, res) => {
+    const { id_produto } = req.params;
+        const id_usuario = req.usuario.id_usuario;
+
+
 
     try {
         const [carrinho] = await conexao.promise().query(
@@ -121,9 +133,10 @@ router.delete("/remover/:id_usuario/:id_produto", autenticarToken, async (req, r
     }
 });
 
-// 4️⃣ Esvaziar o carrinho
-router.delete("/esvaziar/:id_usuario", autenticarToken, async (req, res) => {
-    const { id_usuario } = req.params;
+router.delete("/esvaziar", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+    console.log("entrou na função")
+  
 
     try {
         const [carrinho] = await conexao.promise().query(
@@ -149,10 +162,11 @@ router.delete("/esvaziar/:id_usuario", autenticarToken, async (req, res) => {
     }
 });
 
-// 5️⃣ Atualizar a quantidade de um produto no carrinho
-router.put("/atualizar/:id_usuario/:id_produto", autenticarToken, async (req, res) => {
-    const { id_usuario, id_produto } = req.params;
+router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+    const { id_produto } = req.params;
     const { quantidade } = req.body;
+     console.log("entrou na função")
 
     if (quantidade < 1) {
         return res.status(400).json({ mensagem: "A quantidade deve ser maior que zero." });
@@ -190,5 +204,128 @@ router.put("/atualizar/:id_usuario/:id_produto", autenticarToken, async (req, re
         res.status(500).json({ erro: "Erro ao atualizar quantidade." });
     }
 });
+
+
+router.post("/calcular-preco", autenticarToken, async (req, res) => {
+    const { produtoId, quantidadeCliente } = req.body;
+
+    try {
+        const [resultado] = await conexao.promise().query(
+            "SELECT * FROM produtos WHERE id_produtos = ?",
+            [produtoId]
+        );
+
+        if (resultado.length === 0) {
+            return res.status(404).json({ erro: "Produto não encontrado." });
+        }
+
+        const produto = resultado[0];
+        const quantidadeDisponivel = produto.quantidade;
+        const precoTotal = produto.preco;
+        const pesoProduto = produto.peso_kg;
+        const pesoTotal = pesoProduto * quantidadeCliente;
+        
+        if (pesoTotal < 10) {
+            return res.status(400).json({ erro: "Peso total mínimo para frete é de 10kg." });
+        }
+      
+        
+        if (quantidadeCliente > quantidadeDisponivel) {
+            return res.status(400).json({ erro: "Quantidade solicitada maior que a disponível." });
+        }
+
+        const precoUnitario = precoTotal / quantidadeDisponivel;
+        const precoCliente = precoUnitario * quantidadeCliente;
+
+      
+
+        // Função que calcula o frete com base na tabela
+        const calcularFrete = (peso) => {
+            if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
+            if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
+            if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
+            if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
+            if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
+            if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
+            if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
+            if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
+            return { base: 0, comissao: 0 }; // Fora do intervalo
+        };
+
+        const frete = calcularFrete(pesoTotal);
+
+        const totalFinal = precoCliente + frete.base + frete.comissao;
+        
+        res.json({
+            precoUnitario,
+            precoCliente,
+            pesoTotal,
+            frete: frete.base,
+            comissao: frete.comissao,
+            totalFinal
+        });
+        
+
+        
+    } catch (erro) {
+        console.error("Erro ao calcular o preço:", erro);
+        res.status(500).json({ erro: "Erro ao calcular o preço do produto", detalhe: erro.message });
+    }
+});
+
+router.post("/finalizar-compra", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+
+    try {
+        // Pega o carrinho do usuário
+        const [carrinho] = await conexao.promise().query(
+            "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
+            [id_usuario]
+        );
+
+        if (carrinho.length === 0) {
+            return res.status(400).json({ mensagem: "Carrinho vazio." });
+        }
+
+        const id_carrinho = carrinho[0].id_carrinho;
+
+        // Pega os itens do carrinho
+        const [itens] = await conexao.promise().query(
+            "SELECT ci.id_produto, ci.quantidade, p.quantidade AS estoque_atual FROM carrinho_itens ci JOIN produtos p ON ci.id_produto = p.id_produtos WHERE ci.id_carrinho = ?",
+            [id_carrinho]
+        );
+
+        // Verifica se todos os produtos têm estoque suficiente
+        for (const item of itens) {
+            if (item.quantidade > item.estoque_atual) {
+                return res.status(400).json({
+                    mensagem: `Produto com ID ${item.id_produto} não tem estoque suficiente.`
+                });
+            }
+        }
+
+        // Atualiza o estoque dos produtos
+        for (const item of itens) {
+            const novoEstoque = item.estoque_atual - item.quantidade;
+            await conexao.promise().query(
+                "UPDATE produtos SET quantidade = ?, status = ? WHERE id_produtos = ?",
+                [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
+            );
+        }
+
+        // Limpa o carrinho
+        await conexao.promise().query(
+            "DELETE FROM carrinho_itens WHERE id_carrinho = ?",
+            [id_carrinho]
+        );
+
+        res.json({ mensagem: "Compra finalizada com sucesso." });
+
+    } catch (erro) {
+        console.error("Erro ao finalizar a compra:", erro);
+        res.status(500).json({ erro: "Erro ao finalizar a compra." });
+    }
+});
+
 
 module.exports = router;

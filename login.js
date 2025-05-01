@@ -49,26 +49,27 @@ router.post("/", async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id_usuario: usuario.id_usuario, nome: usuario.nome, tipo: usuario.tipo_usuario },
+            { id_usuario: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario },
             SECRET_KEY,
             { expiresIn: "1h" }
         );
 
         res.cookie("token", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            secure: false, 
             sameSite: "Lax",
-            maxAge: 3600000
+            maxAge: 3600000,
+            path: "/"
         });
 
         res.status(200).json({
             mensagem: "Sessão iniciada",
             token,
-            usuario: { id: usuario.id_usuario, nome: usuario.nome, tipo: usuario.tipo_usuario }
+            usuario: { id: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario }
         });
 
     } catch (error) {
-        console.error("Erro ao iniciar sessão:", error);
+        console.log("Erro ao iniciar sessão:", error);
 
         // Verifica se o erro veio do banco de dados e exibe a mensagem correta
         if (error.sqlMessage) {
@@ -82,7 +83,7 @@ router.post("/", async (req, res) => {
 // Rota de Logout
 router.post("/logout", (req, res) => {
     res.clearCookie("token");
-    res.status(200).json({ mensagem: "Sessão encerrada" });no
+    res.status(200).json({ mensagem: "Sessão encerrada" });
 });
 
 

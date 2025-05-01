@@ -1,42 +1,49 @@
 const express = require("express");
 const router = express.Router();
-const conexao = require("./database"); 
+const conexao = require("./database");
+const notificar = require("./utils/notificar");
+
 const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
 
 
-router.post("/:id_usuario/produtos", autenticarToken, autorizarUsuario(["Agricultor" ,"Fornecedor"]) ,async (req, res) => {
+router.post("/produtos", autenticarToken, autorizarUsuario(["Agricultor" ,"Fornecedor"]) ,async (req, res) => {
     try {
-       // console.log("Dados recebidos no body:", req.body); 
+      console.log("entrou na função")
+        console.log("Dados recebidos no body:", req.body); 
 
-        const { nome, descricao, preco, quantidade, foto_produto, categoria } = req.body;
-        const { id_usuario } = req.params;
+        const { nome, descricao, preco, quantidade, foto_produto, categoria ,Unidade ,provincia ,DATA_CRIACAO} = req.body;
+        const  id_usuario  = req.usuario.id_usuario;
+
+        console.log("Recebendo os dados" , req.body)
 
         if (!nome || !id_usuario || !categoria ||!quantidade || !preco) {
-            return res.status(400).json({ erro: "Os campos nome, id_usuario e categoria são obrigatórios." });
+            return res.status(400).json({ erro: "Os campos nome e categoria são obrigatórios." });
         }
 
         
-        const sql = "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria) VALUES (?, ?, ?, ?, ?, ?)";
-        
-        const [resultado] = await conexao.promise().query(sql, [
-            id_usuario, nome, descricao, preco, foto_produto, categoria
-        ]);
+        const sql = "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
 
+        const [resultado] = await conexao.promise().query(sql, [
+          id_usuario, nome, descricao, preco, foto_produto, categoria, provincia
+        ]);
+        
         const produtoid = resultado.insertId;
         const quantidadeProduto = quantidade ?? 0; 
          const tipo_movimento= quantidadeProduto> 0 ? "Entrada":"Saída";
 
        
         await conexao.promise().query(
-            "INSERT INTO estoque (produto_id, data_entrada, quantidade, tipo_movimento ) VALUES (?, NOW(), ? ,? )", 
-            [produtoid, quantidadeProduto,tipo_movimento]
+            "INSERT INTO estoque (produto_id, data_entrada, quantidade, tipo_movimento ,Unidade) VALUES (?, NOW(), ? ,?,? )", 
+            [produtoid, quantidadeProduto,tipo_movimento , Unidade]
         );
 
         await conexao.promise().query( "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?", 
             [produtoid]
         );
+
+        await notificar(req.usuario.id_usuario, `Produto '${nome}' foi cadastrado com sucesso.`);
 
         res.status(201).json({ 
             mensagem: "Produto criado com sucesso!", 
@@ -46,12 +53,14 @@ router.post("/:id_usuario/produtos", autenticarToken, autorizarUsuario(["Agricul
                 descricao,
                 preco,
                 foto_produto,
-                categoria
+                categoria,
+                provincia,
+                DATA_CRIACAO
             } 
         });
 
     } catch (erro) {
-        console.error("Erro ao criar o produto:", erro);
+        console.error("Erro ao cadastrar  produto:", erro);
         res.status(500).json({ erro: "Erro ao criar o produto", detalhe: erro.message });
     }
 });
@@ -63,7 +72,17 @@ router.post("/:id_usuario/produtos", autenticarToken, autorizarUsuario(["Agricul
 
 router.get("/" ,async (req, res) => {
    
-    const sql = `  SELECT * FROM produtos `;
+    const sql = `SELECT 
+    p.id_produtos, 
+    p.nome, 
+    p.foto_produto, 
+    p.preco,
+    p.destaque,
+    e.quantidade,
+    e.Unidade 
+  FROM produtos p
+  LEFT JOIN estoque e ON p.id_produtos = e.produto_id
+  `
     try {
         
         const [resultados] = await conexao.promise().query(sql);
@@ -74,68 +93,89 @@ router.get("/" ,async (req, res) => {
 });
 
 
-router.get("/:id", async (req, res) => {
+router.get("/produto/:id", async (req, res) => {
     const produtoId = req.params.id;
-    const sql = "SELECT * FROM produtos WHERE id_produtos = ?";
 
     try {
-        const [resultado] = await conexao.promise().query(sql, [produtoId]);
+        
+        const [produto] = await conexao.promise().query("SELECT * FROM produtos WHERE id_produtos = ?", [produtoId]);
 
-        if (resultado.length === 0) {
+        if (produto.length === 0) {
             return res.status(404).json({ mensagem: "Produto não encontrado" });
         }
+        const [estoque] = await conexao.promise().query("SELECT quantidade, Unidade FROM estoque WHERE produto_id = ?", [produtoId]);
 
-        res.json(resultado[0]);
-
+        
+        const dadosCompletos = {
+            id: produto[0].id_produtos,
+            nome: produto[0].nome,
+            provincia: produto[0].provincia,
+            foto_produto: produto[0].foto_produto,
+            preco: produto[0].preco, 
+            unidade: estoque[0]?.Unidade || null,
+            quantidade:estoque[0]?.quantidade
+          };
+          
+        res.json(dadosCompletos);
     } catch (erro) {
         res.status(500).json({ erro: "Erro ao buscar o produto", detalhes: erro.message });
     }
 });
 
 
-router.put("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor "]) , async (req, res) => {
-    const produtoId = req.params.id;
-    const { nome, descricao, preco, quantidade, categoria } = req.body;
+router.put("/atualizar/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]), async (req, res) => {
+  const produtoId = req.params.id;
+  const { nome, descricao, preco, quantidade, categoria, Unidade, foto_produto } = req.body;
+  const io = req.app.get("socketio");
 
-    try {
-    
-        const [produtoExistente] = await conexao.promise().query("SELECT * FROM produtos WHERE id_produtos = ?", [produtoId]
-        );
+  console.log("entrou na função");
 
-        if (produtoExistente.length === 0) {
-            return res.status(404).json({ mensagem: "Produto não encontrado" });
-        }
+  try {
+      const [produtoExistente] = await conexao.promise().query(
+          "SELECT * FROM produtos WHERE id_produtos = ?",
+          [produtoId]
+      );
 
-        const sql = `
-            UPDATE produtos 
-            SET nome = ?, descricao = ?, preco = ?,  categoria = ? 
-            WHERE id_produtos = ?
-        `;
-        await conexao.promise().query( "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?", 
-            [produtoid]
-        );
+      if (produtoExistente.length === 0) {
+          return res.status(404).json({ mensagem: "Produto não encontrado" });
+      }
+      
+      const sql = `
+          UPDATE produtos 
+          SET nome = ?, descricao = ?, preco = ?, categoria = ?, foto_produto = ?   
+          WHERE id_produtos = ?
+      `;
 
+      const [resultado] = await conexao.promise().query(sql, [
+          nome, descricao, preco, categoria, foto_produto, produtoId
+      ]);
 
-        
-        const [resultado] = await conexao.promise().query(sql, [
-            nome, descricao, preco,  categoria, produtoId
-        ]);
-        const produtoid = resultado.insertId;
-            const quantidadeProduto = quantidade ?? 0;
-                    "update estoque set quantidade=?" ,[produtoid ,quantidadeProduto];
+      await conexao.promise().query(
+          "UPDATE estoque SET quantidade = ?, Unidade = ? WHERE produto_id = ?",
+          [quantidade, Unidade, produtoId]
+      );
 
-        if (resultado.affectedRows === 0) {
-            return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
-        }
+      await conexao.promise().query(
+          "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
+          [produtoId]
+      );
 
-        res.json({ mensagem: "Produto atualizado com sucesso!" });
+      if (resultado.affectedRows === 0) {
+          return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
+      }
 
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: erro.message });
-    }
+      await notificar(req.usuario.id_usuario, `Produto '${nome}' foi atualizado.`);
+
+      res.status(201).json({ mensagem: "Produto atualizado com sucesso!" });
+
+  } catch (erro) {
+    await notificar(req.usuario.id_usuario, `Erro ao actualizar produto atualizado.`);
+
+      res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: erro.message });
+  }
 });
 
-router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor "]) ,async (req, res) => {
+router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]) ,async (req, res) => {
     const produtoId = req.params.id;
     const sql = "DELETE FROM produtos WHERE id_produtos = ?";
 
@@ -145,6 +185,7 @@ router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Forneced
         if (resultado.affectedRows === 0) {
             return res.status(404).json({ mensagem: "Produto não encontrado" });
         }
+        await notificar(req.usuario.id_usuario, "Um produto foi deletado.");
 
         res.json({ mensagem: "Produto deletado com sucesso!" });
     } catch (erro) {
@@ -152,5 +193,110 @@ router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Forneced
     }
 });
 
+
+
+router.patch('/:id/destaque', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Verifica se o produto existe
+    const [produtos] = await conexao.query('SELECT * FROM produtos WHERE id_produtos = ?', [id]);
+    const produto = produtos[0];
+
+    if (!produto) {
+      return res.status(404).json({ error: "Produto não encontrado!" });
+    }
+
+    // Verifica se o usuário logado é o dono do produto
+    if (produto.id_usuario !== req.usuario.id_usuario) {
+      return res.status(403).json({ error: "Você não tem permissão para destacar este produto." });
+    }
+
+    // Verifica se o pagamento está confirmado
+    const [pagamentos] = await conexao.query(
+      'SELECT * FROM pagamentos WHERE id_usuario = ? AND id_produto = ? AND status = ?',
+      [req.usuario.id_usuario, id, 'pago']
+    );
+
+    if (pagamentos.length === 0) {
+      return res.status(400).json({ error: "Pagamento não confirmado para este produto." });
+    }
+
+    // Atualiza o produto como destaque
+    await conexao.query('UPDATE produtos SET destaque = ? WHERE id_produtos = ?', [true, id]);
+
+    await notificar(req.usuario.id_usuario, `Produto com ID ${id} foi patrocinado com sucesso.`);
+
+    return res.status(200).json({ message: "Produto destacado com sucesso!" });
+
+  } catch (error) {
+    console.log("Erro ao destacar o produto:", error);
+    return res.status(500).json({ error: "Erro interno ao destacar o produto." });
+  }
+});
+  
+  router.get("/categoria/:categoria", async (req, res) => {
+    try {
+      const { categoria } = req.params;
+      const { provincia, precoMin, precoMax } = req.query;
+      console.log("entrou na função get por categoria");
+      console.log("Categoria recebida:", categoria);
+      console.log("Filtros recebidos:", req.query);
+  
+      let sql = `
+        SELECT 
+          p.id_produtos, 
+          p.nome, 
+          p.foto_produto, 
+          p.preco, 
+          p.provincia,
+          e.quantidade, 
+          e.Unidade,
+          u.nome AS nome_vendedor
+        FROM produtos p
+        LEFT JOIN estoque e ON p.id_produtos = e.produto_id
+        LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
+        WHERE p.categoria = ?`;
+  
+      const params = [categoria];
+  
+      if (provincia) {
+        sql += " AND p.provincia = ?";
+        params.push(provincia);
+      }
+  
+      if (precoMin) {
+        sql += " AND p.preco >= ?";
+        params.push(precoMin);
+      }
+  
+      if (precoMax) {
+        sql += " AND p.preco <= ?";
+        params.push(precoMax);
+      }
+  
+      console.log("SQL final:", sql);
+      console.log("Parâmetros:", params);
+  
+      const [rows] = await conexao.promise().query(sql, params);
+      res.status(200).json(rows);
+    } catch (error) {
+      console.error("Erro ao buscar produtos por categoria:", error);
+      res.status(500).json({ erro: "Erro interno ao buscar produtos" });
+    }
+  });
+  
+
+  router.get("/meus-produtos", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+    const [produtos] = await conexao.promise().query(
+      "SELECT * FROM produtos WHERE id_usuario = ?",
+      [id_usuario]
+    );
+    res.json(produtos);
+  });
+  
+
+  
 
 module.exports = router;

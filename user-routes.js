@@ -5,18 +5,30 @@ const { autenticarToken } = require("./mildwaretoken");
 const senhaValida=/^[a-zA-Z0-9!@#$%^&*]{6,12}$/
 const numeroAngola=/^9\d{8}$/
  const bcrypt= require("bcryptjs")
- const multer=require("multer")
- const path=require("path")
- const fs = require("fs");
-
-
+ const notificar = require("./utils/notificar");
+ 
+ 
 router.use(express.json());
 
-// Certifica que a pasta "uploads" existe
-const uploadDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
+
+function removerEnderecoSeComprador(usuario) {
+    if (usuario.tipo_usuario && usuario.tipo_usuario.trim().toLowerCase() === "comprador") {
+        delete usuario.rua;
+        delete usuario.provincia;
+        delete usuario.bairro;
+        delete usuario.pais;
+        delete usuario.municipio;
+    }
+    return usuario;
 }
+
+
+
+
+
+
+
+
 
 
 router.get("/", async (req, res) => {
@@ -46,50 +58,42 @@ router.get("/", async (req, res) => {
     
 
         ); 
-        usuarios.forEach(usuario => {
-        if(usuarios.tipo_usuario==="Comprador"){ 
-            delete usuario.rua
-            delete usuario.provincia
-            delete usuario.bairro
-            delete usuario.pais
-            delete usuario.municipio
 
+        const usuario = removerEnderecoSeComprador(usuarios[0]);
 
-        }
-    })
-
-        usuarios.forEach(usuario => {
-         Object.keys(usuario).forEach(key => {
+        // Remove campos com valor null
+        Object.keys(usuario).forEach(key => {
             if (usuario[key] === null) {
                 delete usuario[key];
             }
         });
-    });
-       
-                res.json({ message: "Lista de usuários activos", usuarios: usuarios });
-    } catch (error) {
+        
+        res.json({ message: `Detalhes do usuário `, usuario });
+        
+
+       } catch (error) {
         res.status(500).json({ message: "Erro ao buscar usuários", error });
     }
 });
 
 router.get("/me",autenticarToken, async (req, res) => {
-    const userid = req.params.id;
+    const userid = req.usuario.id_usuario;
     try {
         const sql =  `SELECT
-        user.nome AS Nome, 
-        user.senha AS Senha,
-        user.descricao AS Descrição,
-        COALESCE( user.foto , "Sem Foto") AS Fotografia,
+        user.nome AS nome,
+        user.descricao AS descricao,
+        COALESCE( user.foto , "Sem Foto") AS fotografia,
         user.status AS Status,
-        user.tipo_usuario AS Tipo_de_Usuário,
-        user.email AS Email,
-        user.data_exclusao AS Data_de_Exclusão,
-        COALESCE(contacto.contacto, 'Sem contacto') AS Contacto,
+        user.tipo_usuario,
+        user.email AS email,
+        user.data_exclusao AS data_exclusao,
+        user.data_criacao AS data_criacao,
+        COALESCE(contacto.contacto, 'Sem contacto') AS contacto,
         endereco.rua AS Rua,
-            endereco.provincia AS Provincia,
-            endereco.bairro AS Bairro,
-            endereco.municipio AS Municipio,
-            endereco.pais AS Pais
+            endereco.provincia AS provincia,
+            endereco.bairro AS bairro,
+            endereco.municipio AS municipio,
+            endereco.pais AS pais
        
 
     FROM usuarios user
@@ -104,23 +108,20 @@ router.get("/me",autenticarToken, async (req, res) => {
             return res.status(404).json({ message: `Usuário com ID ${userid} não encontrado` });
         }
          
-        let usuario=usuarios[0]
-        if (usuario.tipo_usuario.trim().toLowerCase() === "comprador") { 
-            delete usuario.rua
-            delete usuario.provincia
-            delete usuario.bairro
-            delete usuario.pais
-            delete usuario.municipio
+       
+        console.log("tipo de usuario", usuarios[0].tipo_usuario)
+        const usuario = removerEnderecoSeComprador(usuarios[0]);
 
-
-        }
-       Object.keys(usuario).forEach(key => {
+        // Remover os campos com valor null
+        Object.keys(usuario).forEach(key => {
             if (usuario[key] === null) {
-               delete usuario[key];
-           }
+                delete usuario[key];
+            }
         });
-
-        res.json({ message: `Detalhes do usuário com ID ${userid}`, usuario: usuario});
+        
+        res.json({ message: `Detalhes do usuário `, usuario });
+        console.log("dados do usuário" , usuario)
+        
     } catch (error) {
         res.status(500).json({ message: "Erro ao buscar o usuário", error });
     }
@@ -128,10 +129,10 @@ router.get("/me",autenticarToken, async (req, res) => {
 
 
 
-router.post("/", upload("foto"), async (req, res) => {
+router.post("/",  async (req, res) => {
     const { nome, email, senha, descricao, data_criacao, 
          tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
-         const foto = req.file ? `/uploads/${req.file.filename}` : undefined;
+         
 
         console.log("entrou na função")
         console.log("Dados enviados" , req.body)
@@ -151,13 +152,16 @@ router.post("/", upload("foto"), async (req, res) => {
             return res.status(400).json({ message: "O contacto deve ter 9 dígitos e começar com 9" });
         }
 
+        const tipoLower = tipo_usuario.trim().toLowerCase();
+
         if (
-            tipo_usuario.trim().toLowerCase() !== "Fornecedor" && 
-            tipo_usuario.trim().toLowerCase() !== "Agricultor" && 
-            (rua !== undefined || provincia !== undefined || bairro !== undefined || municipio !== undefined || pais !== undefined)
+            tipoLower !== "fornecedor" && 
+            tipoLower !== "agricultor" && 
+            (rua || provincia || bairro || municipio || pais)
         ) {
             return res.status(400).json({ message: "Apenas Fornecedores e Agricultores podem adicionar endereço padrão" });
         }
+        
 
         const [usuariosExistentes] = await conexao.promise().query(
             "SELECT id_usuario FROM usuarios WHERE email = ?",
@@ -174,7 +178,7 @@ router.post("/", upload("foto"), async (req, res) => {
         // Inserir no banco de dados
         const [resultado] = await conexao.promise().query(
             "INSERT INTO USUARIOS (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao) VALUES (?, ?, ?, ?,?,? , NOW())",
-            [nome, email, senhaCriptografada, tipo_usuario, foto, descricao , data_criacao]
+            [nome, email, senhaCriptografada, tipo_usuario, descricao , data_criacao]
         );
 
         const idUsuario = resultado.insertId;
@@ -191,7 +195,7 @@ router.post("/", upload("foto"), async (req, res) => {
             );
         }
 
-    
+        
         res.status(201).json({
             message: "Conta criada com sucesso!",
             usuario: { id: idUsuario, nome: nome.trim(), email: email.trim(), tipo_usuario }
@@ -205,24 +209,19 @@ router.post("/", upload("foto"), async (req, res) => {
 
 
 
-const storage=multer.diskStorage({
-    destination:(req , file , cb)=>{
-        cb(null ,uploadDir)
-    },
-    filename:(req ,file,ceb)=>{
-        cb(null , Date.now() + path.extname(file.originalname))
-    }
-})
-const upload=multer({storage})
 
-router.put("/perfil",autenticarToken, upload.single("foto"), async (req, res) => {
-    const userId = req.params.id;
+router.put("/perfil",autenticarToken,  async (req, res) => {
+    const userId = req.usuario.id_usuario;
     const { 
         nome, email, senha, descricao,  tipo_usuario, 
-        contacto, rua, provincia, bairro, municipio, pais 
+        contacto, rua, provincia, bairro, municipio, pais, foto 
     } = req.body;
-    const foto=req.file? `/uploads/${req.file.filename}`:undefined // caminho da foto
+   
 
+    
+    if (userId !== req.body.id_usuario) {
+        return res.status(403).json({ message: "Você não tem permissão para editar esse perfil." });
+    }
 
     try {
         
@@ -236,7 +235,7 @@ router.put("/perfil",autenticarToken, upload.single("foto"), async (req, res) =>
 
         let senhaAtualizada = senha;
         if (senha) {
-            if (!senhaValida.test(senha)) {
+            if (!senhaValida.test(senhaAtualizada)) {
                 return res.status(400).json({ message: "Senha inválida" });
             }
             const salt = await bcrypt.genSalt(10);
@@ -247,38 +246,41 @@ router.put("/perfil",autenticarToken, upload.single("foto"), async (req, res) =>
         
         const [result] = await conexao.promise().query(
             "UPDATE usuarios SET nome=?, email=?, senha=?, descricao=?, foto=?, tipo_usuario=? WHERE id_usuario=?",
-            [nome, email, senha, descricao, foto, tipo_usuario, userId]
+            [nome, email, senhaAtualizada, descricao, foto, tipo_usuario, userId]
         );
+        
 
         
         if (contacto) {
             await conexao.promise().query(
-                "UPDATE contacto SET contacto=? WHERE id_contacto=?",
-                [contacto, userId]
+                "UPDATE contacto SET contacto=? WHERE id_usuario=?" , [contacto,userId]
+
             );
         }
 
         
-        if ((userTipo === "Agricultor" || userTipo === "Fornecedor") && (rua || provincia || bairro || municipio || pais)) {
+        if ((userTipo.toLowerCase() === "Agricultor" || userTipo.toLowerCase() === "Fornecedor") && (rua || provincia || bairro || municipio || pais)) {
             await conexao.promise().query(
-                "UPDATE endereco SET rua=?, provincia=?, bairro=?, municipio=?, pais=? WHERE id_endereco=?",
-                [rua, provincia, bairro, municipio, pais, userId]
-            );
+               "UPDATE endereco SET rua=?, provincia=?, bairro=?, municipio=?, pais=? WHERE id_usuario=?",
+    [rua, provincia, bairro, municipio, pais, userId]
+);
         } else if (rua || provincia || bairro || municipio || pais) {
             return res.status(403).json({ message: "Apenas Agricultores e Fornecedores podem atualizar o endereço." });
         }
-
-        res.json({ message: `Usuário com ID ${userId} atualizado com sucesso!` });
+        await notificar(req.usuario.id_usuario, `Seu perfil  foi atualizado com sucesso.`);
+        res.status(200).json({ message: `Usuário com ID ${userId} atualizado com sucesso!` });
 
     } catch (error) {
+        await notificar(req.usuario.id_usuario, `Erro ao atualizar perfil.`);
+
         res.status(500).json({ message: "Erro ao atualizar usuário", error });
     }
 });
 
 
 
-router.delete("/:id", autenticarToken, async (req, res) => {
-    const userid = req.params.id;
+router.delete("/deletar", autenticarToken, async (req, res) => {
+    const userid = req.usuario.id_usuario;
 
     try {
         const [result] = await conexao.promise().query( 
@@ -295,6 +297,5 @@ router.delete("/:id", autenticarToken, async (req, res) => {
         res.status(500).json({ message: "Erro ao desativar usuário", error });
     }
 });
-
 
 module.exports = router;
