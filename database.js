@@ -6,7 +6,7 @@ const mysql= require("mysql2");
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT    
+  port: process.env.DB_PORT ,   
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -14,9 +14,9 @@ const mysql= require("mysql2");
 
 
 
-  pool.getConnection((err,connection)=>{
+  pool.getConnection((error,connection)=>{
     if(err){
-        console.log("erro na conexão" , err);
+        console.log("erro na conexão" , error);
     }else{
         console.log("conexão feita com sucesso")
         connection.release();
