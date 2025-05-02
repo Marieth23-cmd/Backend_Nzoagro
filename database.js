@@ -15,7 +15,7 @@ const mysql= require("mysql2");
 
 
   pool.getConnection((error,connection)=>{
-    if(err){
+    if(error){
         console.log("erro na conexão" , error);
     }else{
         console.log("conexão feita com sucesso")
