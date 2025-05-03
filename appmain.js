@@ -11,9 +11,21 @@ const { socketHandler } = require("./socket/socketHandler");
 // Inicializando o Express
 const app = express();
 
+const allowedOrigins = [
+    "http://localhost:3000",
+    "https://nzo-agrofinal.vercel.app"
+];
+
 // Configuração do CORS
 app.use(cors({
-    origin: "http://localhost:3000", // ou seu frontend em produção
+    origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        } else {
+            return callback(new Error("Not allowed by CORS"));
+        }
+    },
     credentials: true
 }));
 
