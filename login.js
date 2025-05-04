@@ -25,7 +25,7 @@ router.post("/", async (req, res) => {
     try {
         const [usuarios] = await conexao.promise().query(
             `SELECT id_usuario, nome, senha, status, tipo_usuario , foto ,
-             descricao FROM USUARIOS WHERE email = ?`
+             descricao FROM usuarios WHERE email = ?`
             ,
             [email]
         );
