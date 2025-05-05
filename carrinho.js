@@ -53,42 +53,51 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
         }
         res.json({ mensagem: "Produto adicionado ao carrinho." });
     } catch (error) {
-        console.log("Erro ao adicionar produto ao carrinho:", error);
+        console.log ("Erro ao adicionar produto ao carrinho:", error);
         res.status(500).json({ erro: "Erro ao adicionar produto ao carrinho." });
     }
 });
 
-
 router.get("/", autenticarToken, async (req, res) => {
-    const id_usuario= req.usuario.id_usuario;
-
+    const id_usuario = req.usuario.id_usuario;
+    
     try {
+        // Primeiro verifica se o usuário tem um carrinho
         const [carrinho] = await conexao.promise().query(
             "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
             [id_usuario]
         );
-
+        
         if (carrinho.length === 0) {
             return res.json({ mensagem: "Carrinho vazio.", produtos: [] });
         }
-
+        
         const id_carrinho = carrinho[0].id_carrinho;
-
+        
+        // Consulta corrigida para corresponder às tabelas reais
         const [produtos] = await conexao.promise().query(
-            `SELECT p.id, p.nome, p.preco, p.imagem, ci.quantidade , foto_produto
-             FROM carrinho_itens ci 
-             JOIN produtos p ON ci.id_produto = p.id_produtos 
-             WHERE ci.id_carrinho = ?`,
+            `SELECT 
+                p.id_produtos AS id, 
+                p.nome, 
+                p.preco, 
+                p.categoria,
+                p.foto_produto, 
+                ci.quantidade
+            FROM carrinho_itens ci
+            JOIN produtos p ON ci.id_produto = p.id_produtos
+            WHERE ci.id_carrinho = ?`,
             [id_carrinho]
         );
-
+        
+        // Log para debug
+        console.log("Produtos encontrados:", produtos);
+        
         res.json({ produtos });
     } catch (error) {
         console.log("Erro ao buscar produtos do carrinho:", error);
         res.status(500).json({ erro: "Erro ao buscar produtos do carrinho." });
     }
 });
-
 
 router.delete("/remover/:id_produto", autenticarToken, async (req, res) => {
     const { id_produto } = req.params;
