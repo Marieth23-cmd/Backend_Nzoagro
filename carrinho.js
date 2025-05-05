@@ -8,9 +8,6 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
     const {  id_produto, quantidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
     console.log("Entrou na função")
-
-
-
     try {
 
         if (quantidade < 1) {
@@ -54,7 +51,6 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
                 [id_carrinho, id_produto, quantidade]
             );
         }
-
         res.json({ mensagem: "Produto adicionado ao carrinho." });
     } catch (erro) {
         console.error("Erro ao adicionar produto ao carrinho:", erro);
