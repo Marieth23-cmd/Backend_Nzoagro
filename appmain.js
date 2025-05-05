@@ -11,21 +11,32 @@ const { socketHandler } = require("./socket/socketHandler");
 // Inicializando o Express
 const app = express();
 
-const allowedOrigins = [
-    "http://localhost:3000",
-    "https://nzo-agrofinal.vercel.app"
-];
 
 // Configuração do CORS
+const allowedOrigins = [
+    "http://localhost:3000",
+    /\.vercel\.app$/  // Aceita qualquer subdomínio que termine com .vercel.app
+];
+
+// E modifique a verificação de origem
 app.use(cors({
     origin: function (origin, callback) {
         console.log("Origem da requisição:", origin);
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (!origin) return callback(null, true);
+        
+        // Verifica exatamente ou com regex
+        const permitido = allowedOrigins.some(allowed => {
+            if (allowed instanceof RegExp) {
+                return allowed.test(origin);
+            }
+            return allowed === origin;
+        });
+        
+        if (permitido) {
             return callback(null, true);
         }
         return callback(new Error("Not allowed by CORS"));
     },
-    
     credentials: true
 }));
 
