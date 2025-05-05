@@ -59,8 +59,8 @@ router.post("/produtos", autenticarToken, autorizarUsuario(["Agricultor" ,"Forne
             } 
         });
 
-    } catch (erro) {
-        console.error("Erro ao cadastrar  produto:", erro);
+    } catch (error) {
+        console.log("Erro ao cadastrar  produto:", error);
         res.status(500).json({ erro: "Erro ao criar o produto", detalhe: erro.message });
     }
 });
@@ -84,11 +84,12 @@ router.get("/" ,async (req, res) => {
   LEFT JOIN estoque e ON p.id_produtos = e.produto_id
   `
     try {
-        
+        console.log("entrou na função get")
+        console.log("Dados recebidos no body:", req.body);
         const [resultados] = await conexao.promise().query(sql);
         res.json(resultados);
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro ao buscar os produtos", detalhe: erro.message });
+    } catch (error) {
+        res.status(500).json({ erro: "Erro ao buscar os produtos", detalhe: error.message });
     }
 });
 
@@ -117,8 +118,8 @@ router.get("/produto/:id", async (req, res) => {
           };
           
         res.json(dadosCompletos);
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro ao buscar o produto", detalhes: erro.message });
+    } catch (error) {
+        res.status(500).json({ erro: "Erro ao buscar o produto", detalhes: error.message });
     }
 });
 
@@ -168,10 +169,10 @@ router.put("/atualizar/:id", autenticarToken, autorizarUsuario(["Agricultor", "F
 
       res.status(201).json({ mensagem: "Produto atualizado com sucesso!" });
 
-  } catch (erro) {
+  } catch (error) {
     await notificar(req.usuario.id_usuario, `Erro ao actualizar produto atualizado.`);
 
-      res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: erro.message });
+      res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: error.message });
   }
 });
 
@@ -188,8 +189,8 @@ router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Forneced
         await notificar(req.usuario.id_usuario, "Um produto foi deletado.");
 
         res.json({ mensagem: "Produto deletado com sucesso!" });
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro ao deletar o produto", detalhe: erro.message });
+    } catch (error) {
+        res.status(500).json({ erro: "Erro ao deletar o produto", detalhe: error.message });
     }
 });
 
@@ -281,7 +282,7 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
       const [rows] = await conexao.promise().query(sql, params);
       res.status(200).json(rows);
     } catch (error) {
-      console.error("Erro ao buscar produtos por categoria:", error);
+      console.log("Erro ao buscar produtos por categoria:", error);
       res.status(500).json({ erro: "Erro interno ao buscar produtos" });
     }
   });
