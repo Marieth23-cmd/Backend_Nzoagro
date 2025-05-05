@@ -52,8 +52,8 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
             );
         }
         res.json({ mensagem: "Produto adicionado ao carrinho." });
-    } catch (erro) {
-        console.error("Erro ao adicionar produto ao carrinho:", erro);
+    } catch (error) {
+        console.log("Erro ao adicionar produto ao carrinho:", error);
         res.status(500).json({ erro: "Erro ao adicionar produto ao carrinho." });
     }
 });
@@ -83,8 +83,8 @@ router.get("/", autenticarToken, async (req, res) => {
         );
 
         res.json({ produtos });
-    } catch (erro) {
-        console.error("Erro ao buscar produtos do carrinho:", erro);
+    } catch (error) {
+        console.log("Erro ao buscar produtos do carrinho:", error);
         res.status(500).json({ erro: "Erro ao buscar produtos do carrinho." });
     }
 });
@@ -93,9 +93,7 @@ router.get("/", autenticarToken, async (req, res) => {
 router.delete("/remover/:id_produto", autenticarToken, async (req, res) => {
     const { id_produto } = req.params;
         const id_usuario = req.usuario.id_usuario;
-
-
-
+    
     try {
         const [carrinho] = await conexao.promise().query(
             "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
@@ -123,8 +121,8 @@ router.delete("/remover/:id_produto", autenticarToken, async (req, res) => {
         );
 
         res.json({ mensagem: "Produto removido do carrinho." });
-    } catch (erro) {
-        console.error("Erro ao remover produto do carrinho:", erro);
+    } catch (error) {
+        console.log("Erro ao remover produto do carrinho:", error);
         res.status(500).json({ erro: "Erro ao remover produto do carrinho." });
     }
 });
@@ -152,8 +150,8 @@ router.delete("/esvaziar", autenticarToken, async (req, res) => {
         );
 
         res.json({ mensagem: "Carrinho esvaziado com sucesso." });
-    } catch (erro) {
-        console.error("Erro ao esvaziar o carrinho:", erro);
+    } catch (error) {
+        console.log("Erro ao esvaziar o carrinho:", error);
         res.status(500).json({ erro: "Erro ao esvaziar o carrinho." });
     }
 });
@@ -195,8 +193,8 @@ router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
         );
 
         res.json({ mensagem: "Quantidade atualizada com sucesso." });
-    } catch (erro) {
-        console.error("Erro ao atualizar quantidade:", erro);
+    } catch (error) {
+        console.log("Erro ao atualizar quantidade:", error);
         res.status(500).json({ erro: "Erro ao atualizar quantidade." });
     }
 });
@@ -263,9 +261,9 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
         
 
         
-    } catch (erro) {
-        console.error("Erro ao calcular o preço:", erro);
-        res.status(500).json({ erro: "Erro ao calcular o preço do produto", detalhe: erro.message });
+    } catch (error) {
+        console.log("Erro ao calcular o preço:", error);
+        res.status(500).json({ erro: "Erro ao calcular o preço do produto", detalhe: error.message });
     }
 });
 
@@ -317,8 +315,8 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 
         res.json({ mensagem: "Compra finalizada com sucesso." });
 
-    } catch (erro) {
-        console.error("Erro ao finalizar a compra:", erro);
+    } catch (error) {
+        console.log("Erro ao finalizar a compra:", error);
         res.status(500).json({ erro: "Erro ao finalizar a compra." });
     }
 });
