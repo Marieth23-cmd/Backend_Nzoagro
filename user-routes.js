@@ -24,13 +24,6 @@ function removerEnderecoSeComprador(usuario) {
 
 
 
-
-
-
-
-
-
-
 router.get("/", async (req, res) => {
     try {
         const [usuarios] = await conexao.promise().query(
@@ -152,16 +145,15 @@ router.post("/",  async (req, res) => {
             return res.status(400).json({ message: "O contacto deve ter 9 dígitos e começar com 9" });
         }
 
-        const tipoLower = tipo_usuario.trim().toLowerCase();
-
-        if (
-            tipoLower !== "fornecedor" && 
-            tipoLower !== "agricultor" && 
-            (rua || provincia || bairro || municipio || pais)
-        ) {
-            return res.status(400).json({ message: "Apenas Fornecedores e Agricultores podem adicionar endereço padrão" });
-        }
-        
+            const tipoLower = (tipo_usuario || '').trim().toLowerCase();
+            if (
+                tipoLower !== "fornecedor" && 
+                tipoLower !== "agricultor" &&
+                (rua || provincia || bairro || municipio || pais)
+            ) {
+                return res.status(400).json({ message: "Apenas Fornecedores e Agricultores podem adicionar endereço padrão" });
+            }
+                    
 
         const [usuariosExistentes] = await conexao.promise().query(
             "SELECT id_usuario FROM usuarios WHERE email = ?",
