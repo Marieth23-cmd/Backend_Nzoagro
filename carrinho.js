@@ -4,7 +4,7 @@ const conexao = require("./database");
 const { autenticarToken } = require("./mildwaretoken");
 
 
-router.post("/adicionar", autenticarToken, async (req, res) => {
+router.post("/adicionar",  async (req, res) => {
     const {  id_produto, quantidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
     console.log("Entrou na função")
