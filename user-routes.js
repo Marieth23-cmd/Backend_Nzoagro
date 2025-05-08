@@ -189,7 +189,7 @@ router.post("/",  async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id_usuario: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario },
+            { id_usuario:idUsuario, nome:nome, tipo_usuario:tipo_usuario },
             SECRET_KEY, 
             { expiresIn: "1h" }
         );
@@ -206,9 +206,9 @@ router.post("/",  async (req, res) => {
             mensagem: "Sessão iniciada",
             token,
             usuario: {
-                id: usuario.id_usuario,
-                nome: usuario.nome,
-                tipo_usuario: usuario.tipo_usuario
+                id: idUsuario,
+                nome,
+                tipo_usuario
             }
         });
 
