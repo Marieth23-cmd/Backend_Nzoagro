@@ -170,7 +170,7 @@ router.post("/",  async (req, res) => {
         // Inserir no banco de dados
         const [resultado] = await conexao.promise().query(
             "INSERT INTO usuarios (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao) VALUES (?, ?, ?, ?,?,? , NOW())",
-            [nome, email, senhaCriptografada, tipo_usuario, descricao ,foto, data_criacao]
+            [nome, email, senhaCriptografada, tipo_usuario ,foto ,descricao , data_criacao]
         );
 
         const idUsuario = resultado.insertId;
