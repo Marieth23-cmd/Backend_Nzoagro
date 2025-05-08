@@ -6,6 +6,7 @@ const senhaValida=/^[a-zA-Z0-9!@#$%^&*]{6,12}$/
 const numeroAngola=/^9\d{8}$/
  const bcrypt= require("bcryptjs")
  const notificar = require("./utils/notificar");
+ const jwt = require("jsonwebtoken");
  const SECRET_KEY = process.env.SECRET_KEY || "chaveDeSegurancaPadrao";
 
  
