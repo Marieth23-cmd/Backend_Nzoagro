@@ -188,7 +188,7 @@ router.post("/",  async (req, res) => {
         }
 
         
-        res.status(201).json({
+        res.status(200).json({
             message: "Conta criada com sucesso!",
             usuario: { id: idUsuario, nome: nome.trim(), email: email.trim(), tipo_usuario }
         });
