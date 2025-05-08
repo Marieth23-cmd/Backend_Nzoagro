@@ -6,7 +6,8 @@ const senhaValida=/^[a-zA-Z0-9!@#$%^&*]{6,12}$/
 const numeroAngola=/^9\d{8}$/
  const bcrypt= require("bcryptjs")
  const notificar = require("./utils/notificar");
- 
+ const SECRET_KEY = process.env.SECRET_KEY || "chaveDeSegurancaPadrao";
+
  
 router.use(express.json());
 
@@ -187,10 +188,28 @@ router.post("/",  async (req, res) => {
             );
         }
 
-        
+        const token = jwt.sign(
+            { id_usuario: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario },
+            SECRET_KEY, 
+            { expiresIn: "1h" }
+        );
+
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: "None",
+            maxAge: 3600000,
+            path: "/"
+        });
+
         res.status(200).json({
-            message: "Conta criada com sucesso!",
-            usuario: { id: idUsuario, nome: nome.trim(), email: email.trim(), tipo_usuario }
+            mensagem: "Sessão iniciada",
+            token,
+            usuario: {
+                id: usuario.id_usuario,
+                nome: usuario.nome,
+                tipo_usuario: usuario.tipo_usuario
+            }
         });
 
     } catch (error) {
