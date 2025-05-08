@@ -123,7 +123,7 @@ router.get("/me",autenticarToken, async (req, res) => {
 
 
 router.post("/",  async (req, res) => {
-    const { nome, email, senha, descricao, data_criacao, 
+    const { nome, email, senha, descricao, data_criacao,foto, 
          tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
          
 
@@ -170,7 +170,7 @@ router.post("/",  async (req, res) => {
         // Inserir no banco de dados
         const [resultado] = await conexao.promise().query(
             "INSERT INTO usuarios (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao) VALUES (?, ?, ?, ?,?,? , NOW())",
-            [nome, email, senhaCriptografada, tipo_usuario, descricao , data_criacao]
+            [nome, email, senhaCriptografada, tipo_usuario, descricao ,foto, data_criacao]
         );
 
         const idUsuario = resultado.insertId;
