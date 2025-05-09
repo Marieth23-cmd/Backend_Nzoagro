@@ -4,6 +4,8 @@ const conexao = require("./database");
 const { autenticarToken } = require("./mildwaretoken");
 
 
+router.use(express.json());
+
 router.post("/adicionar",  async (req, res) => {
     const {  id_produto, quantidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
