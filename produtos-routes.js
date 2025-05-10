@@ -2,72 +2,119 @@ const express = require("express");
 const router = express.Router();
 const conexao = require("./database");
 const notificar = require("./utils/notificar");
+const upload = require("./upload");
+const cloudinary = require("./utils/cloudinary");
 
 const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
 
 
-router.post("/produtos", autenticarToken, autorizarUsuario(["Agricultor" ,"Fornecedor"]) ,async (req, res) => {
+
+
+router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]),
+  upload.single("foto_produto"), // pega o arquivo do form
+  async (req, res) => {
     try {
-      console.log("entrou na função")
-        console.log("Dados recebidos no body:", req.body); 
+      const {
+        nome,
+        descricao,
+        preco,
+        categoria,
+        provincia,
+        quantidade,
+        Unidade,
+        DATA_CRIACAO,
+      } = req.body;
 
-        const { nome, descricao, preco, quantidade, foto_produto, categoria ,Unidade ,provincia ,DATA_CRIACAO} = req.body;
-        const  id_usuario  = req.usuario.id_usuario;
+      const id_usuario = req.usuario.id_usuario;
 
-        console.log("Recebendo os dados" , req.body)
+      // Verificar campos obrigatórios
+      if (!nome || !id_usuario || !categoria || !quantidade || !preco) {
+        return res
+          .status(400)
+          .json({ erro: "Os campos obrigatórios não foram preenchidos." });
+      }
 
-        if (!nome || !id_usuario || !categoria ||!quantidade || !preco) {
-            return res.status(400).json({ erro: "Os campos nome e categoria são obrigatórios." });
-        }
+      // Upload da imagem para o Cloudinary
+      let fotoUrl = "";
+      if (req.file) {
+        const resultado = await cloudinary.uploader.upload_stream(
+          { folder: "produtos" },
+          (error, result) => {
+            if (error) {
+              console.error("Erro ao fazer upload:", error);
+              return res
+                .status(500)
+                .json({ erro: "Erro ao fazer upload da imagem." });
+            }
+            fotoUrl = result.secure_url;
+          }
+        );
 
-        
-        const sql = "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+        // Escreve a imagem na stream
+        require("streamifier").createReadStream(req.file.buffer).pipe(resultado);
+      }
 
-        const [resultado] = await conexao.promise().query(sql, [
-          id_usuario, nome, descricao, preco, foto_produto, categoria, provincia
+      // Salvar no banco
+      const sql =
+        "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+
+      const [resultadoSQL] = await conexao
+        .promise()
+        .query(sql, [
+          id_usuario,
+          nome,
+          descricao,
+          preco,
+          fotoUrl,
+          categoria,
+          provincia,
         ]);
-        
-        const produtoid = resultado.insertId;
-        const quantidadeProduto = quantidade ?? 0; 
-         const tipo_movimento= quantidadeProduto> 0 ? "Entrada":"Saída";
 
-       
-        await conexao.promise().query(
-            "INSERT INTO estoque (produto_id, data_entrada, quantidade, tipo_movimento ,Unidade) VALUES (?, NOW(), ? ,?,? )", 
-            [produtoid, quantidadeProduto,tipo_movimento , Unidade]
+      const produtoid = resultadoSQL.insertId;
+      const quantidadeProduto = quantidade ?? 0;
+      const tipo_movimento = quantidadeProduto > 0 ? "Entrada" : "Saída";
+
+      await conexao
+        .promise()
+        .query(
+          "INSERT INTO estoque (produto_id, data_entrada, quantidade, tipo_movimento, Unidade) VALUES (?, NOW(), ?, ?, ?)",
+          [produtoid, quantidadeProduto, tipo_movimento, Unidade]
         );
 
-        await conexao.promise().query( "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?", 
-            [produtoid]
+      await conexao
+        .promise()
+        .query("UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
+          [produtoid]
         );
 
-        await notificar(req.usuario.id_usuario, `Produto '${nome}' foi cadastrado com sucesso.`);
+      await notificar(
+        req.usuario.id_usuario,
+        `Produto '${nome}' foi cadastrado com sucesso.`
+      );
 
-        res.status(201).json({ 
-            mensagem: "Produto criado com sucesso!", 
-            produto: {
-                id: produtoid,
-                nome,
-                descricao,
-                preco,
-                foto_produto,
-                categoria,
-                provincia,
-                DATA_CRIACAO
-            } 
-        });
-
+      res.status(201).json({
+        mensagem: "Produto criado com sucesso!",
+        produto: {
+          id: produtoid,
+          nome,
+          descricao,
+          preco,
+          foto_produto: fotoUrl,
+          categoria,
+          provincia,
+          DATA_CRIACAO,
+        },
+      });
     } catch (error) {
-        console.log("Erro ao cadastrar  produto:", error);
-        res.status(500).json({ erro: "Erro ao criar o produto", detalhe: erro.message });
+      console.log("Erro ao cadastrar produto:", error);
+      res
+        .status(500)
+        .json({ erro: "Erro ao criar o produto", detalhe: error.message });
     }
-});
-
-
-    
-
+  }
+);
 
 
 router.get("/" ,async (req, res) => {
@@ -123,56 +170,64 @@ router.get("/produto/:id", async (req, res) => {
     }
 });
 
-
 router.put("/atualizar/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]), async (req, res) => {
   const produtoId = req.params.id;
   const { nome, descricao, preco, quantidade, categoria, Unidade, foto_produto } = req.body;
   const io = req.app.get("socketio");
 
-  console.log("entrou na função");
-
   try {
-      const [produtoExistente] = await conexao.promise().query(
-          "SELECT * FROM produtos WHERE id_produtos = ?",
-          [produtoId]
-      );
+    const [produtoExistente] = await conexao.promise().query(
+      "SELECT * FROM produtos WHERE id_produtos = ?",
+      [produtoId]
+    );
 
-      if (produtoExistente.length === 0) {
-          return res.status(404).json({ mensagem: "Produto não encontrado" });
-      }
-      
-      const sql = `
-          UPDATE produtos 
-          SET nome = ?, descricao = ?, preco = ?, categoria = ?, foto_produto = ?   
-          WHERE id_produtos = ?
-      `;
+    if (produtoExistente.length === 0) {
+      return res.status(404).json({ mensagem: "Produto não encontrado" });
+    }
 
-      const [resultado] = await conexao.promise().query(sql, [
-          nome, descricao, preco, categoria, foto_produto, produtoId
-      ]);
+    let novaFotoURL = produtoExistente[0].foto_produto;
 
-      await conexao.promise().query(
-          "UPDATE estoque SET quantidade = ?, Unidade = ? WHERE produto_id = ?",
-          [quantidade, Unidade, produtoId]
-      );
+    // ✅ Se vier uma nova imagem em base64 (foto_produto), envia para Cloudinary
+    if (foto_produto && foto_produto.startsWith("data:image")) {
+      const uploadResult = await cloudinary.uploader.upload(foto_produto, {
+        folder: "produtos_nzoagro", // ou outro nome
+        public_id: `produto_${produtoId}_${Date.now()}`,
+      });
 
-      await conexao.promise().query(
-          "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
-          [produtoId]
-      );
+      novaFotoURL = uploadResult.secure_url;
+    }
 
-      if (resultado.affectedRows === 0) {
-          return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
-      }
+    const sql = `
+      UPDATE produtos 
+      SET nome = ?, descricao = ?, preco = ?, categoria = ?, foto_produto = ?   
+      WHERE id_produtos = ?
+    `;
 
-      await notificar(req.usuario.id_usuario, `Produto '${nome}' foi atualizado.`);
+    const [resultado] = await conexao.promise().query(sql, [
+      nome, descricao, preco, categoria, novaFotoURL, produtoId
+    ]);
 
-      res.status(201).json({ mensagem: "Produto atualizado com sucesso!" });
+    await conexao.promise().query(
+      "UPDATE estoque SET quantidade = ?, Unidade = ? WHERE produto_id = ?",
+      [quantidade, Unidade, produtoId]
+    );
+
+    await conexao.promise().query(
+      "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
+      [produtoId]
+    );
+
+    if (resultado.affectedRows === 0) {
+      return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
+    }
+
+    await notificar(req.usuario.id_usuario, `Produto '${nome}' foi atualizado.`);
+
+    res.status(201).json({ mensagem: "Produto atualizado com sucesso!" });
 
   } catch (error) {
-    await notificar(req.usuario.id_usuario, `Erro ao actualizar produto atualizado.`);
-
-      res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: error.message });
+    await notificar(req.usuario.id_usuario, `Erro ao atualizar produto.`);
+    res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: error.message });
   }
 });
 
