@@ -10,7 +10,7 @@ const autenticarToken = (req, res, next) => {
         return res.status(401).json({ mensagem: "Acesso negado. Token não fornecido." });
     }
 
-    const token = req.cookies.token || req.cookies.Token;
+    const token = req.cookies.token 
     console.log("Token encontrado:", token.substring(0, 15) + "...");
 
     try {
