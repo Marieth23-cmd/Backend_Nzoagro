@@ -9,22 +9,11 @@ const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
 
-
-
-
 router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]),
   upload.single("foto_produto"), // pega o arquivo do form
   async (req, res) => {
     try {
-      const {
-        nome,
-        descricao,
-        preco,
-        categoria,
-        provincia,
-        quantidade,
-        Unidade,
-        DATA_CRIACAO,
+      const { nome, descricao,preco,  categoria,provincia, quantidade,Unidade,DATA_CRIACAO,
       } = req.body;
 
       const id_usuario = req.usuario.id_usuario;
@@ -43,7 +32,7 @@ router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornec
           { folder: "produtos" },
           (error, result) => {
             if (error) {
-              console.error("Erro ao fazer upload:", error);
+              console.log("Erro ao fazer upload:", error);
               return res
                 .status(500)
                 .json({ erro: "Erro ao fazer upload da imagem." });
@@ -57,19 +46,11 @@ router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornec
       }
 
       // Salvar no banco
-      const sql =
-        "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+      const sql ="INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
 
       const [resultadoSQL] = await conexao
         .promise()
-        .query(sql, [
-          id_usuario,
-          nome,
-          descricao,
-          preco,
-          fotoUrl,
-          categoria,
-          provincia,
+        .query(sql, [ id_usuario,nome, descricao, preco,fotoUrl,categoria,provincia,
         ]);
 
       const produtoid = resultadoSQL.insertId;
@@ -220,6 +201,7 @@ router.put("/atualizar/:id", autenticarToken, autorizarUsuario(["Agricultor", "F
     if (resultado.affectedRows === 0) {
       return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
     }
+    console.log("ID do usuário para notificação:", req.usuario.id_usuario);
 
     await notificar(req.usuario.id_usuario, `Produto '${nome}' foi atualizado.`);
 
