@@ -3,15 +3,12 @@ const router = express.Router();
 const conexao = require("./database");
 const notificar = require("./utils/notificar");
 const upload = require("./upload");
-const cloudinary = require("./utils/cloudinary");
-
+const cloudinaryUtils = require("./utils/cloudinary");
 const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
-router.post(
-  "/produtos",
-  autenticarToken,
-  autorizarUsuario(["Agricultor", "Fornecedor"]),
+
+router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornecedor"]),
   upload.single("foto_produto"), // Agora deve funcionar corretamente
   async (req, res) => {
     try {
@@ -39,11 +36,12 @@ router.post(
       if (req.file) {
         try {
           console.log("Iniciando upload de imagem para o Cloudinary...");
-          const resultado = await uploadToCloudinary(req.file.buffer);
+          const resultado = await cloudinaryUtils.uploadToCloudinary(req.file.buffer);
           fotoUrl = resultado.secure_url;
+          
           console.log("Upload de imagem bem-sucedido:", fotoUrl);
         } catch (uploadError) {
-          console.error("Erro ao fazer upload da imagem:", uploadError);
+          console.log("Erro ao fazer upload da imagem:", uploadError);
           return res
             .status(500)
             .json({ erro: "Erro ao fazer upload da imagem." });

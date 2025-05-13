@@ -1,4 +1,4 @@
-// cloudinaryUpload.js - Função separada para upload
+//claudinary.js
 const streamifier = require("streamifier");
 const { cloudinary } = require("../cloudinaryConfig"); // Ajuste o caminho conforme necessário
 
