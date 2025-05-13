@@ -9,11 +9,21 @@ const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
 
-router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]),
-  upload.single("foto_produto"), // pega o arquivo do form
+router.post(
+  "/produtos",
+  autenticarToken,
+  autorizarUsuario(["Agricultor", "Fornecedor"]),
+  upload.single("foto_produto"),
   async (req, res) => {
     try {
-      const { nome, descricao,preco,  categoria,provincia, quantidade,Unidade,DATA_CRIACAO,
+      const {
+        nome,
+        descricao,
+        preco,
+        categoria,
+        provincia,
+        quantidade,
+        Unidade
       } = req.body;
 
       const id_usuario = req.usuario.id_usuario;
@@ -28,34 +38,40 @@ router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornec
       // Upload da imagem para o Cloudinary
       let fotoUrl = "";
       if (req.file) {
-        const resultado = await cloudinary.uploader.upload_stream(
-          { folder: "produtos" },
-          (error, result) => {
-            if (error) {
-              console.log("Erro ao fazer upload:", error);
-              return res
-                .status(500)
-                .json({ erro: "Erro ao fazer upload da imagem." });
-            }
-            fotoUrl = result.secure_url;
-          }
-        );
-
-        // Escreve a imagem na stream
-        require("streamifier").createReadStream(req.file.buffer).pipe(resultado);
+        try {
+          const resultado = await uploadToCloudinary(req.file.buffer);
+          fotoUrl = resultado.secure_url;
+          console.log("Upload de imagem bem-sucedido:", fotoUrl);
+        } catch (uploadError) {
+          console.error("Erro ao fazer upload da imagem:", uploadError);
+          return res
+            .status(500)
+            .json({ erro: "Erro ao fazer upload da imagem." });
+        }
+      } else {
+        console.log("Nenhuma imagem fornecida no upload");
       }
 
       // Salvar no banco
-      const sql ="INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+      const sql =
+        "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
 
       const [resultadoSQL] = await conexao
         .promise()
-        .query(sql, [ id_usuario,nome, descricao, preco,fotoUrl,categoria,provincia,
+        .query(sql, [
+          id_usuario,
+          nome,
+          descricao,
+          preco,
+          fotoUrl,
+          categoria,
+          provincia
         ]);
 
       const produtoid = resultadoSQL.insertId;
       const quantidadeProduto = quantidade ?? 0;
-      const tipo_movimento = quantidadeProduto > 0 ? "Entrada" : "Saída";
+      const tipo_movimento =
+        quantidadeProduto > 0 ? "Entrada" : "Saída";
 
       await conexao
         .promise()
@@ -66,17 +82,22 @@ router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornec
 
       await conexao
         .promise()
-        .query("UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
+        .query(
+          "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
           [produtoid]
         );
 
+      try {
+        await notificar(
+          req.usuario.id_usuario,
+          `Produto '${nome}' foi cadastrado com sucesso.`
+        );
+      } catch (notifyError) {
+        console.error("Erro ao enviar notificação:", notifyError);
+        // Continua mesmo se a notificação falhar
+      }
 
-  await notificar(
-  req.usuario.id_usuario,
-  `Produto '${nome}' foi cadastrado com sucesso.`
-);
-    
-res.status(201).json({
+      res.status(201).json({
         mensagem: "Produto criado com sucesso!",
         produto: {
           id: produtoid,
@@ -86,18 +107,17 @@ res.status(201).json({
           foto_produto: fotoUrl,
           categoria,
           provincia,
-          DATA_CRIACAO,
-        },
+          DATA_CRIACAO: new Date()
+        }
       });
     } catch (error) {
-      console.log("Erro ao cadastrar produto:", error);
+      console.error("Erro ao cadastrar produto:", error);
       res
         .status(500)
         .json({ erro: "Erro ao criar o produto", detalhe: error.message });
     }
   }
 );
-
 
 router.get("/" ,async (req, res) => {
    
