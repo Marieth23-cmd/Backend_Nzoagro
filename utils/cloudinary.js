@@ -1,43 +1,32 @@
-// Configuração do Cloudinary
-const { v2: cloudinary } = require('cloudinary');
-const dotenv = require('dotenv');
+// cloudinaryUpload.js - Função separada para upload
+const streamifier = require("streamifier");
+const { cloudinary } = require("../cloudinaryConfig"); // Ajuste o caminho conforme necessário
 
-dotenv.config();
-
-// Verifica se as variáveis de ambiente estão configuradas
-if (!process.env.CLOUDINARY_CLOUD_NAME || 
-    !process.env.CLOUDINARY_API_KEY || 
-    !process.env.CLOUDINARY_API_SECRET) {
-  console.error(`
-    ⚠️ ATENÇÃO: Configurações do Cloudinary incompletas! 
-    Verifique seu arquivo .env e certifique-se de que as seguintes variáveis estão definidas:
-    - CLOUDINARY_CLOUD_NAME
-    - CLOUDINARY_API_KEY
-    - CLOUDINARY_API_SECRET
-  `);
+/**
+ * Função para fazer upload de um buffer para o Cloudinary
+ * @param {Buffer} buffer - Buffer do arquivo a ser enviado
+ * @param {string} folder - Pasta no Cloudinary onde o arquivo será armazenado
+ * @returns {Promise<Object>} - Resultado do upload do Cloudinary
+ */
+function uploadToCloudinary(buffer, folder = "produtos") {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (error) {
+          console.log("Erro no upload para o Cloudinary:", error);
+          return reject(error);
+        }
+        console.log("Upload para o Cloudinary bem-sucedido:", result.secure_url);
+        resolve(result);
+      }
+    );
+    
+    
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
 }
 
-// Configuração do Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Função para testar conexão com o Cloudinary
-async function testCloudinaryConnection() {
-  try {
-    const result = await cloudinary.api.ping();
-    console.log('✅ Conexão com Cloudinary estabelecida com sucesso!', result);
-    return true;
-  } catch (error) {
-    console.error('❌ Erro na conexão com Cloudinary:', error);
-    return false;
-  }
-}
-
-// Exporta cloudinary e função de teste
 module.exports = {
-  cloudinary,
-  testCloudinaryConnection
+  uploadToCloudinary
 };

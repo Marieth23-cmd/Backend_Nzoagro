@@ -8,12 +8,11 @@ const cloudinary = require("./utils/cloudinary");
 const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 
 router.use(express.json());
-
 router.post(
   "/produtos",
   autenticarToken,
   autorizarUsuario(["Agricultor", "Fornecedor"]),
-  upload.single("foto_produto"),
+  upload.single("foto_produto"), // Agora deve funcionar corretamente
   async (req, res) => {
     try {
       const {
@@ -39,6 +38,7 @@ router.post(
       let fotoUrl = "";
       if (req.file) {
         try {
+          console.log("Iniciando upload de imagem para o Cloudinary...");
           const resultado = await uploadToCloudinary(req.file.buffer);
           fotoUrl = resultado.secure_url;
           console.log("Upload de imagem bem-sucedido:", fotoUrl);
@@ -111,13 +111,14 @@ router.post(
         }
       });
     } catch (error) {
-      console.error("Erro ao cadastrar produto:", error);
+      console.log("Erro ao cadastrar produto:", error);
       res
         .status(500)
         .json({ erro: "Erro ao criar o produto", detalhe: error.message });
     }
   }
 );
+
 
 router.get("/" ,async (req, res) => {
    
