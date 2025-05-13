@@ -70,12 +70,13 @@ router.post("/produtos",autenticarToken, autorizarUsuario(["Agricultor", "Fornec
           [produtoid]
         );
 
-      await notificar(
-        req.usuario.id_usuario,
-        `Produto '${nome}' foi cadastrado com sucesso.`
-      );
 
-      res.status(201).json({
+  await notificar(
+  req.usuario.id_usuario,
+  `Produto '${nome}' foi cadastrado com sucesso.`
+);
+    
+res.status(201).json({
         mensagem: "Produto criado com sucesso!",
         produto: {
           id: produtoid,

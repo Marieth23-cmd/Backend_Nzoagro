@@ -1,5 +1,4 @@
 
-
 const conexao = require("../database");           // já conecta com o DB
 const { usuariosConectados } = require("../socket/socketHandler");
 

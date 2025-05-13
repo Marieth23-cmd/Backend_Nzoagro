@@ -16,7 +16,7 @@ const autenticarToken = (req, res, next) => {
     try {
         const decoded = jwt.verify(token, SECRET_KEY);
         console.log("Token decodificado com sucesso:", decoded.id_usuario, decoded.tipo_usuario);
-        console.log("Token decodificado:", decoded);
+        
         req.usuario = decoded;
         next();
         console.log("Token decodificado:", decoded)
