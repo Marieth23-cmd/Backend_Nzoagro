@@ -1,34 +1,4 @@
-// // // utils/notificar.js
-
-// // const { enviarNotificacao } = require("../socket/socketHandler");
-// // const notificarComHistorico = require("./notificarComHistorico");
-
-// // async function notificar(io, { userId, tipo, mensagem, dadosExtras = {} }) {
-  
-// //   enviarNotificacao(io, userId, { tipo, mensagem, ...dadosExtras, data: new Date().toISOString() });
-
-// //   // 2) Persistir no histórico
-// //   await notificarComHistorico(io, userId, { titulo: tipo, mensagem, tipo });
-// // }
-
-// // module.exports = notificar;
-
-// // utils/notificar.js - versão super simplificada
-
-// const notificarComHistorico = require("./notificarComHistorico");
-
-// async function notificar(usuarios_id, mensagem, tipo = "info") {
-//   // Chama diretamente notificarComHistorico sem precisar do io
-//   return await notificarComHistorico(null, usuarios_id, { 
-//     titulo: tipo, 
-//     mensagem, 
-//     tipo 
-//   });
-// }
-
-// module.exports = notificar;
-
-// utils/notificar.js - versão completa com Socket.IO
+// notificar.js
 const { enviarNotificacao } = require("../socket/socketHandler");
 const notificarComHistorico = require("./notificarComHistorico");
 
@@ -63,6 +33,7 @@ async function notificar(ioOuUsuarioId, optionsOuMensagem, tipoOpcional = "info"
         io = socketIO.getIO();
       } catch (e) {
         console.log("Não foi possível obter io, notificações em tempo real desativadas");
+        // Definir io como null explicitamente
         io = null;
       }
     }
@@ -77,27 +48,38 @@ async function notificar(ioOuUsuarioId, optionsOuMensagem, tipoOpcional = "info"
     dadosExtras = options.dadosExtras || {};
   }
   
-  // Envia notificação em tempo real via Socket.IO se disponível
-  if (io && usuarios_id) {
-    try {
-      enviarNotificacao(io, usuarios_id, { 
-        tipo, 
-        mensagem, 
-        ...dadosExtras, 
-        data: new Date().toISOString() 
-      });
-    } catch (e) {
-      console.error("Erro ao enviar notificação em tempo real:", e);
-      // Continua para salvar no histórico mesmo se falhar o envio em tempo real
-    }
+  // Verificar se o usuário_id é válido antes de continuar
+  if (!usuarios_id) {
+    console.error("ID de usuário não fornecido para notificação");
+    return { erro: "ID de usuário não fornecido", success: false };
   }
-  
-  // Salva a notificação no histórico, independentemente do Socket.IO
-  return await notificarComHistorico(io, usuarios_id, { 
-    titulo: tipo, 
-    mensagem, 
-    tipo 
-  });
+
+  try {
+    // Envia notificação em tempo real via Socket.IO se disponível
+    if (io && usuarios_id) {
+      try {
+        enviarNotificacao(io, usuarios_id, {
+          tipo,
+          mensagem,
+          ...dadosExtras,
+          data: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error("Erro ao enviar notificação em tempo real:", e);
+        // Continua para salvar no histórico mesmo se falhar o envio em tempo real
+      }
+    }
+    
+    // Salva a notificação no histórico, independentemente do Socket.IO
+    return await notificarComHistorico(io, usuarios_id, {
+      titulo: tipo,
+      mensagem,
+      tipo
+    });
+  } catch (error) {
+    console.error("Erro ao processar notificação:", error);
+    return { erro: error.message, success: false };
+  }
 }
 
 module.exports = notificar;
