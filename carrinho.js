@@ -210,72 +210,62 @@ router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
     }
 });
 
-
 router.post("/calcular-preco", autenticarToken, async (req, res) => {
-    const { produtoId, quantidadeCliente } = req.body;
+  const { produtoId, quantidadeCliente } = req.body;
 
-    try {
-        const [resultado] = await conexao.promise().query(
-            "SELECT * FROM produtos WHERE id_produtos = ?",
-            [produtoId]
-        );
+  try {
+    const [resultado] = await conexao.promise().query(
+      "SELECT * FROM produtos WHERE id_produtos = ?",
+      [produtoId]
+    );
 
-        if (resultado.length === 0) {
-            return res.status(404).json({ erro: "Produto não encontrado." });
-        }
-
-        const produto = resultado[0];
-        const quantidadeDisponivel = produto.quantidade;
-        const precoTotal = produto.preco;
-        const pesoProduto = produto.peso_kg;
-        const pesoTotal = pesoProduto * quantidadeCliente;
-        
-        if (pesoTotal < 10) {
-            return res.status(400).json({ erro: "Peso total mínimo para frete é de 10kg." });
-        }
-      
-        
-        if (quantidadeCliente > quantidadeDisponivel) {
-            return res.status(400).json({ erro: "Quantidade solicitada maior que a disponível." });
-        }
-
-        const precoUnitario = precoTotal / quantidadeDisponivel;
-        const precoCliente = precoUnitario * quantidadeCliente;
-
-      
-
-        // Função que calcula o frete com base na tabela
-        const calcularFrete = (peso) => {
-            if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
-            if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
-            if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
-            if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
-            if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
-            if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
-            if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
-            if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
-            return { base: 0, comissao: 0 }; // Fora do intervalo
-        };
-
-        const frete = calcularFrete(pesoTotal);
-
-        const totalFinal = precoCliente + frete.base + frete.comissao;
-        
-        res.json({
-            precoUnitario,
-            precoCliente,
-            pesoTotal,
-            frete: frete.base,
-            comissao: frete.comissao,
-            totalFinal
-        });
-        
-
-        
-    } catch (error) {
-        console.log("Erro ao calcular o preço:", error);
-        res.status(500).json({ erro: "Erro ao calcular o preço do produto", detalhe: error.message });
+    if (resultado.length === 0) {
+      return res.status(404).json({ erro: "Produto não encontrado." });
     }
+
+    const produto = resultado[0];
+    const quantidadeDisponivel = produto.quantidade;
+    const precoUnitario = produto.preco;
+    const pesoUnitario = produto.peso_kg || 0;
+
+    if (quantidadeCliente > quantidadeDisponivel) {
+      return res.status(400).json({ erro: "Quantidade solicitada maior que a disponível." });
+    }
+
+    const precoCliente = precoUnitario * quantidadeCliente;
+    const pesoTotal = pesoUnitario * quantidadeCliente;
+
+    const calcularFrete = (peso) => {
+      if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
+      if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
+      if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
+      if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
+      if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
+      if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
+      if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
+      if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
+      return { base: 0, comissao: 0 };
+    };
+
+    const frete = calcularFrete(pesoTotal);
+    const totalFinal = precoCliente + frete.base + frete.comissao;
+
+    res.json({
+      precoUnitario,
+      precoCliente,
+      pesoTotal,
+      frete: frete.base,
+      comissao: frete.comissao,
+      totalFinal
+    });
+
+  } catch (error) {
+    console.log("Erro ao calcular o preço:", error);
+    res.status(500).json({
+      erro: "Erro ao calcular o preço do produto",
+      detalhe: error.message
+    });
+  }
 });
 
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {

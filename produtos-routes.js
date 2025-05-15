@@ -141,6 +141,9 @@ router.get("/" ,async (req, res) => {
     }
 });
 
+  
+// Rota para buscar produtos por ID
+
 
 router.get("/produto/:id", async (req, res) => {
     const produtoId = req.params.id;
@@ -345,14 +348,39 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
   });
   
 
-  router.get("/meus-produtos", autenticarToken, async (req, res) => {
-    const id_usuario = req.usuario.id_usuario;
-    const [produtos] = await conexao.promise().query(
-      "SELECT * FROM produtos WHERE id_usuario = ?",
-      [id_usuario]
-    );
-    res.json(produtos);
-  });
+ 
+  router.get("/produtos/meus-produtos", autenticarToken, async (req, res) => {
+  const id_usuario = req.usuario.id_usuario;
+
+  const sql = `
+    SELECT 
+      p.id_produtos, 
+      p.nome, 
+      p.descricao,
+      p.foto_produto, 
+      p.preco,
+      p.categoria,
+      p.provincia,
+      p.DATA_CRIACAO,
+      e.quantidade,
+      e.Unidade,
+      e.status
+    FROM produtos p
+    LEFT JOIN estoque e ON p.id_produtos = e.produto_id
+    WHERE p.id_usuario = ?
+    ORDER BY p.DATA_CRIACAO DESC
+  `;
+
+  try {
+    const [produtos] = await conexao.promise().query(sql, [id_usuario]);
+
+    res.status(200).json(produtos);
+  } catch (error) {
+    console.log("Erro ao buscar produtos do usuário:", error);
+    res.status(500).json({ erro: "Erro ao buscar os seus produtos", detalhe: error.message });
+  }
+});
+
   
 
   
