@@ -209,9 +209,9 @@ router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao atualizar quantidade." });
     }
 });
-
+// Endpoint modificado para calcular-preco
 router.post("/calcular-preco", autenticarToken, async (req, res) => {
-  const { produtoId, quantidadeCliente } = req.body;
+  const { produtoId, quantidadeCliente, pesoTotal } = req.body;
 
   try {
     const [resultado] = await conexao.promise().query(
@@ -226,14 +226,17 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
     const produto = resultado[0];
     const quantidadeDisponivel = produto.quantidade;
     const precoUnitario = produto.preco;
-    const pesoUnitario = produto.peso_kg || 0;
-
+    
+    // Se a quantidade solicitada for maior que a disponível, retornamos erro
     if (quantidadeCliente > quantidadeDisponivel) {
       return res.status(400).json({ erro: "Quantidade solicitada maior que a disponível." });
     }
 
     const precoCliente = precoUnitario * quantidadeCliente;
-    const pesoTotal = pesoUnitario * quantidadeCliente;
+    
+    // Usamos o pesoTotal fornecido ou calculamos baseado no produto atual
+    const pesoProduto = produto.peso_kg || 0;
+    const pesoTotalFinal = pesoTotal || (pesoProduto * quantidadeCliente);
 
     const calcularFrete = (peso) => {
       if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
@@ -247,13 +250,25 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
       return { base: 0, comissao: 0 };
     };
 
-    const frete = calcularFrete(pesoTotal);
-    const totalFinal = precoCliente + frete.base + frete.comissao;
+    const frete = calcularFrete(pesoTotalFinal);
+    
+    // Se estamos calculando apenas para um produto, o total é o preço do produto
+    // Se estamos calculando com peso total, devolvemos apenas os valores de frete e comissão
+    const totalFinal = pesoTotal ? precoCliente : (precoCliente + frete.base + frete.comissao);
+
+    // Log para depuração
+    console.log("API calculando com:", {
+      produtoId,
+      quantidadeCliente,
+      pesoTotal: pesoTotalFinal,
+      frete: frete.base,
+      comissao: frete.comissao
+    });
 
     res.json({
       precoUnitario,
       precoCliente,
-      pesoTotal,
+      pesoTotal: pesoTotalFinal,
       frete: frete.base,
       comissao: frete.comissao,
       totalFinal
@@ -267,7 +282,6 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
     });
   }
 });
-
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
 
