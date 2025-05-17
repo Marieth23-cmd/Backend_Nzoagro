@@ -285,6 +285,8 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
     });
   }
 });
+
+
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
 
@@ -302,14 +304,14 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         const id_carrinho = carrinho[0].id_carrinho;
 
         // Pega os itens do carrinho
-            const [itens] = await conexao.promise().query(
+        const [itens] = await conexao.promise().query(
             `SELECT ci.id_produto, ci.quantidade AS quantidade_carrinho, e.quantidade AS estoque_atual
             FROM carrinho_itens ci
             JOIN produtos p ON ci.id_produto = p.id_produtos
             JOIN estoque e ON e.produto_id = p.id_produtos
             WHERE ci.id_carrinho = ?`,
             [id_carrinho]
-            );
+        );
 
         if (itens.length === 0) {
             return res.status(400).json({ mensagem: "Carrinho vazio." });
@@ -317,7 +319,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 
         // Verifica se todos os produtos têm estoque suficiente
         for (const item of itens) {
-            if (item.quantidade > item.estoque_atual) {
+            if (item.quantidade_carrinho > item.estoque_atual) {
                 return res.status(400).json({
                     mensagem: `Produto com ID ${item.id_produto} não tem estoque suficiente.`
                 });
@@ -326,7 +328,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 
         // Atualiza o estoque dos produtos
         for (const item of itens) {
-            const novoEstoque = item.estoque_atual - item.quantidade;
+            const novoEstoque = item.estoque_atual - item.quantidade_carrinho;
             await conexao.promise().query(
                 "UPDATE produtos SET quantidade = ?, status = ? WHERE id_produtos = ?",
                 [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
@@ -349,5 +351,24 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     }
 });
 
+router.get("/estoque/:id_produto", autenticarToken, async (req, res) => {
+    const { id_produto } = req.params;
+
+    try {
+        const [estoque] = await conexao.promise().query(
+            "SELECT quantidade FROM estoque WHERE produto_id = ?",
+            [id_produto]
+        );
+
+        if (estoque.length === 0) {
+            return res.status(404).json({ mensagem: "Produto não encontrado." });
+        }
+
+        res.json({ quantidade: estoque[0].quantidade });
+    } catch (error) {
+        console.log("Erro ao buscar estoque:", error);
+        res.status(500).json({ erro: "Erro ao buscar estoque." });
+    }
+});
 
 module.exports = router;
