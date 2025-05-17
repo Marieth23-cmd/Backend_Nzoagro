@@ -305,7 +305,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         const [itens] = await conexao.promise().query(`SELECT ci.id_produto, ci.quantidade, e.quantidade AS estoque_atual
             FROM carrinho_itens ci
             JOIN produtos p ON ci.id_produto = p.id_produtos
-            JOIN estoque e ON e.id_produto = p.id_produtos
+            JOIN estoque e ON e.produto_id = p.id_produtos
             WHERE ci.id_carrinho = ?`,
                 [id_carrinho]
         );
