@@ -128,7 +128,6 @@ router.get("/" ,async (req, res) => {
     p.nome, 
     p.foto_produto, 
     p.preco,
-    p.destaque,
     e.quantidade,
     e.Unidade 
   FROM produtos p
