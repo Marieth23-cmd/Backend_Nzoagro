@@ -302,13 +302,17 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         const id_carrinho = carrinho[0].id_carrinho;
 
         // Pega os itens do carrinho
-        const [itens] = await conexao.promise().query(`SELECT ci.id_produto, ci.quantidade, e.quantidade AS estoque_atual
+        const [itens] = await conexao.promise().query(
+        `SELECT ci.id_produto, ci.quantidade, e.quantidade AS estoque_atual
             FROM carrinho_itens ci
             JOIN produtos p ON ci.id_produto = p.id_produtos
             JOIN estoque e ON e.produto_id = p.id_produtos
             WHERE ci.id_carrinho = ?`,
-                [id_carrinho]
-        );
+            [id_carrinho]
+);
+        if (itens.length === 0) {
+            return res.status(400).json({ mensagem: "Carrinho vazio." });
+        }
 
         // Verifica se todos os produtos têm estoque suficiente
         for (const item of itens) {
