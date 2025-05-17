@@ -19,13 +19,14 @@ router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornece
         categoria,
         provincia,
         quantidade,
-        Unidade
+        Unidade, 
+        peso_kg,
       } = req.body;
 
       const id_usuario = req.usuario.id_usuario;
 
       // Verificar campos obrigatórios
-      if (!nome || !id_usuario || !categoria || !quantidade || !preco) {
+      if (!nome || !id_usuario || !categoria || !quantidade || !preco  ||!peso_kg) {
         return res
           .status(400)
           .json({ erro: "Os campos obrigatórios não foram preenchidos." });
@@ -52,7 +53,7 @@ router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornece
 
       // Salvar no banco
       const sql =
-        "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+        "INSERT INTO produtos (id_usuario, nome, descricao, preco, foto_produto, categoria, provincia, DATA_CRIACAO , peso_kg) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)";
 
       const [resultadoSQL] = await conexao
         .promise()
@@ -63,7 +64,8 @@ router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornece
           preco,
           fotoUrl,
           categoria,
-          provincia
+          provincia, 
+          peso_kg
         ]);
 
       const produtoid = resultadoSQL.insertId;
@@ -105,7 +107,8 @@ router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornece
           foto_produto: fotoUrl,
           categoria,
           provincia,
-          DATA_CRIACAO: new Date()
+          DATA_CRIACAO: new Date(),
+          peso_kg,
         }
       });
     } catch (error) {
@@ -173,69 +176,88 @@ router.get("/produto/:id", async (req, res) => {
         res.status(500).json({ erro: "Erro ao buscar o produto", detalhes: error.message });
     }
 });
+router.put(
+  "/atualizar/:id",
+  autenticarToken,
+  autorizarUsuario(["Agricultor", "Fornecedor"]),
+  upload.single("foto_produto"), // Middleware de upload
+  async (req, res) => {
+    const produtoId = req.params.id;
+    const {
+      nome,
+      descricao,
+      preco,
+      quantidade,
+      categoria,
+      Unidade,
+      peso_kg,
+    } = req.body;
 
-router.put("/atualizar/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]), async (req, res) => {
-  const produtoId = req.params.id;
-  const { nome, descricao, preco, quantidade, categoria, Unidade, foto_produto } = req.body;
-  const io = req.app.get("socketio");
+    try {
+      const [produtoExistente] = await conexao
+        .promise()
+        .query("SELECT * FROM produtos WHERE id_produtos = ?", [produtoId]);
 
-  try {
-    const [produtoExistente] = await conexao.promise().query(
-      "SELECT * FROM produtos WHERE id_produtos = ?",
-      [produtoId]
-    );
+      if (produtoExistente.length === 0) {
+        return res.status(404).json({ mensagem: "Produto não encontrado" });
+      }
 
-    if (produtoExistente.length === 0) {
-      return res.status(404).json({ mensagem: "Produto não encontrado" });
+      let novaFotoURL = produtoExistente[0].foto_produto;
+
+      // ✅ Verifica se foi enviada nova imagem no corpo da requisição
+      if (req.file) {
+        try {
+          console.log("Iniciando upload da nova imagem...");
+          const resultado = await cloudinaryUtils.uploadToCloudinary(req.file.buffer);
+          novaFotoURL = resultado.secure_url;
+          console.log("Imagem atualizada com sucesso:", novaFotoURL);
+        } catch (uploadError) {
+          console.error("Erro ao fazer upload da imagem:", uploadError);
+          return res.status(500).json({ erro: "Erro ao atualizar a imagem." });
+        }
+      }
+
+      const sql = `
+        UPDATE produtos 
+        SET nome = ?, descricao = ?, preco = ?, categoria = ?, foto_produto = ?, peso_kg = ?
+        WHERE id_produtos = ?
+      `;
+
+      const [resultado] = await conexao.promise().query(sql, [
+        nome,
+        descricao,
+        preco,
+        categoria,
+        novaFotoURL,
+        peso_kg,
+        produtoId,
+      ]);
+
+      await conexao.promise().query(
+        "UPDATE estoque SET quantidade = ?, Unidade = ? WHERE produto_id = ?",
+        [quantidade, Unidade, produtoId]
+      );
+
+      await conexao.promise().query(
+        "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
+        [produtoId]
+      );
+
+      if (resultado.affectedRows === 0) {
+        return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
+      }
+
+      await notificar(req.usuario.id_usuario, `Produto '${nome}' foi atualizado.`);
+
+      res.status(201).json({ mensagem: "Produto atualizado com sucesso!" });
+
+    } catch (error) {
+      console.error("Erro ao atualizar produto:", error);
+      await notificar(req.usuario.id_usuario, `Erro ao atualizar produto.`);
+      res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: error.message });
     }
-
-    let novaFotoURL = produtoExistente[0].foto_produto;
-
-    // ✅ Se vier uma nova imagem em base64 (foto_produto), envia para Cloudinary
-    if (foto_produto && foto_produto.startsWith("data:image")) {
-      const uploadResult = await cloudinary.uploader.upload(foto_produto, {
-        folder: "produtos_nzoagro", // ou outro nome
-        public_id: `produto_${produtoId}_${Date.now()}`,
-      });
-
-      novaFotoURL = uploadResult.secure_url;
-    }
-
-    const sql = `
-      UPDATE produtos 
-      SET nome = ?, descricao = ?, preco = ?, categoria = ?, foto_produto = ?   
-      WHERE id_produtos = ?
-    `;
-
-    const [resultado] = await conexao.promise().query(sql, [
-      nome, descricao, preco, categoria, novaFotoURL, produtoId
-    ]);
-
-    await conexao.promise().query(
-      "UPDATE estoque SET quantidade = ?, Unidade = ? WHERE produto_id = ?",
-      [quantidade, Unidade, produtoId]
-    );
-
-    await conexao.promise().query(
-      "UPDATE estoque SET status = IF(quantidade > 0, 'Disponível', 'Esgotado') WHERE produto_id = ?",
-      [produtoId]
-    );
-
-    if (resultado.affectedRows === 0) {
-      return res.status(400).json({ mensagem: "Nenhuma alteração realizada" });
-    }
-    console.log("ID do usuário para notificação:", req.usuario.id_usuario);
-
-    await notificar(req.usuario.id_usuario, `Produto '${nome}' foi atualizado.`);
-
-    res.status(201).json({ mensagem: "Produto atualizado com sucesso!" });
-
-  } catch (error) {
-    await notificar(req.usuario.id_usuario, `Erro ao atualizar produto.`);
-    res.status(500).json({ erro: "Erro ao atualizar o produto", detalhes: error.message });
   }
-});
-
+);
 router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]) ,async (req, res) => {
     const produtoId = req.params.id;
     const sql = "DELETE FROM produtos WHERE id_produtos = ?";

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const conexao = require("./database");
 const { autenticarToken } = require("./mildwaretoken");
+const notificar = require("./utils/notificar");
 
 
 router.use(express.json());
@@ -53,6 +54,8 @@ router.post("/adicionar",autenticarToken,  async (req, res) => {
                 [id_carrinho, id_produto, quantidade]
             );
         }
+        await notificar(req.usuario.id_usuario, `O produto com ${id_produto} foi adicionado ao carrinho .`);
+        // Notificar o usuário que adicionou o produto
         res.json({ mensagem: "Produto adicionado ao carrinho." });
     } catch (error) {
         console.log ("Erro ao adicionar produto ao carrinho:", error);
@@ -299,9 +302,12 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         const id_carrinho = carrinho[0].id_carrinho;
 
         // Pega os itens do carrinho
-        const [itens] = await conexao.promise().query(
-            "SELECT ci.id_produto, ci.quantidade, p.quantidade AS estoque_atual FROM carrinho_itens ci JOIN produtos p ON ci.id_produto = p.id_produtos WHERE ci.id_carrinho = ?",
-            [id_carrinho]
+        const [itens] = await conexao.promise().query(`SELECT ci.id_produto, ci.quantidade, e.quantidade AS estoque_atual
+            FROM carrinho_itens ci
+            JOIN produtos p ON ci.id_produto = p.id_produtos
+            JOIN estoque e ON e.id_produto = p.id_produtos
+            WHERE ci.id_carrinho = ?`
+                [id_carrinho]
         );
 
         // Verifica se todos os produtos têm estoque suficiente
@@ -328,6 +334,8 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             [id_carrinho]
         );
 
+        await notificar(req.usuario.id_usuario, `Compra Finalizada com sucesso.`);
+        
         res.json({ mensagem: "Compra finalizada com sucesso." });
 
     } catch (error) {
