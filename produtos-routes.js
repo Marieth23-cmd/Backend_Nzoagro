@@ -405,6 +405,170 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
 
   
 
+
+// Rota existente para destacar um produto
+router.post('/:id/destaque', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  const { pacote } = req.body;  // Pacote: 3, 5, 7 ou 30 (dias)
+  
+  // Validar pacote
+  if (!pacote || ![3, 5, 7, 30].includes(Number(pacote))) {
+    return res.status(400).json({ error: "Pacote inválido. Escolha entre 3, 5, 7 ou 30 dias." });
+  }
+  
+  try {
+    // Verifica se o produto existe
+    const [produtos] = await conexao.query('SELECT * FROM produtos WHERE id_produtos = ?', [id]);
+    const produto = produtos[0];
+    
+    if (!produto) {
+      return res.status(404).json({ error: "Produto não encontrado!" });
+    }
+    
+    // Verifica se o usuário logado é o dono do produto
+    if (produto.id_usuario !== req.usuario.id_usuario) {
+      return res.status(403).json({ error: "Você não tem permissão para destacar este produto." });
+    }
+    
+    // Calcula valores com base no pacote
+    const valorPacotes = {
+      3: 6000,
+      5: 8000,
+      7: 10000,
+      30: 20000
+    };
+    
+    const valor = valorPacotes[pacote];
+    
+    // Registrar pagamento pendente (simplificado - em um sistema real você usaria um gateway de pagamento)
+    const [resultado] = await conexao.query(
+      'INSERT INTO pagamentos (id_usuario, id_produto, valor, status, tipo) VALUES (?, ?, ?, ?, ?)',
+      [req.usuario.id_usuario, id, valor, 'pendente', 'destaque']
+    );
+    
+    const idPagamento = resultado.insertId;
+    
+    // Aqui você pode adicionar lógica para integrar com uma API de pagamento
+    
+    return res.status(200).json({ 
+      message: "Pedido de destaque criado com sucesso!",
+      idPagamento,
+      valor
+    });
+  } catch (error) {
+    console.log("Erro ao criar pedido de destaque:", error);
+    return res.status(500).json({ error: "Erro interno ao processar pedido de destaque." });
+  }
+});
+
+// Rota para confirmar pagamento (apenas para testes/simulação)
+router.post('/pagamentos/:id/confirmar', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Busca o pagamento
+    const [pagamentos] = await conexao.query('SELECT * FROM pagamentos WHERE id = ? AND id_usuario = ?', 
+      [id, req.usuario.id_usuario]);
+      
+    if (pagamentos.length === 0) {
+      return res.status(404).json({ error: "Pagamento não encontrado." });
+    }
+    
+    const pagamento = pagamentos[0];
+    
+    // Atualiza o status do pagamento
+    await conexao.query('UPDATE pagamentos SET status = ? WHERE id = ?', ['pago', id]);
+    
+    // Define a duração com base no tipo de pacote
+    let diasDestaque;
+    if (pagamento.valor === 6000) diasDestaque = 3;
+    else if (pagamento.valor === 8000) diasDestaque = 5;
+    else if (pagamento.valor === 10000) diasDestaque = 7;
+    else if (pagamento.valor === 20000) diasDestaque = 30;
+    else diasDestaque = 3; // valor padrão
+    
+    // Calcula a data de término do destaque
+    const dataAtual = new Date();
+    const dataFim = new Date(dataAtual);
+    dataFim.setDate(dataFim.getDate() + diasDestaque);
+    
+    // Atualiza o produto como destaque com data de expiração
+    await conexao.query(
+      'UPDATE produtos SET destaque = ?, data_inicio_destaque = ?, data_fim_destaque = ? WHERE id_produtos = ?', 
+      [true, dataAtual, dataFim, pagamento.id_produto]
+    );
+    
+    await notificar(req.usuario.id_usuario, `Produto com ID ${pagamento.id_produto} foi patrocinado com sucesso por ${diasDestaque} dias.`);
+    
+    return res.status(200).json({ 
+      message: `Pagamento confirmado e produto destacado por ${diasDestaque} dias!` 
+    });
+  } catch (error) {
+    console.log("Erro ao confirmar pagamento:", error);
+    return res.status(500).json({ error: "Erro interno ao confirmar pagamento." });
+  }
+});
+
+// Rota para listar produtos em destaque (ativos)
+router.get('/destaque', async (req, res) => {
+  try {
+    const dataAtual = new Date();
+    
+    // Buscar produtos em destaque que ainda não expiraram
+    const [produtos] = await conexao.query(
+      `SELECT p.* FROM produtos p 
+       WHERE p.destaque = true 
+       AND p.data_fim_destaque >= ?
+       ORDER BY p.data_inicio_destaque DESC`,
+      [dataAtual]
+    );
+    
+    // Atualizar produtos com destaque expirado
+    await conexao.query(
+      `UPDATE produtos SET destaque = false 
+       WHERE destaque = true AND data_fim_destaque < ?`,
+      [dataAtual]
+    );
+    
+    return res.status(200).json(produtos);
+  } catch (error) {
+    console.log("Erro ao buscar produtos em destaque:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar produtos em destaque." });
+  }
+});
+
+// Rota para verificar status de destaque de um produto
+router.get('/:id/status-destaque', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const [produtos] = await conexao.query(
+      `SELECT destaque, data_inicio_destaque, data_fim_destaque 
+       FROM produtos WHERE id_produtos = ? AND id_usuario = ?`,
+      [id, req.usuario.id_usuario]
+    );
+    
+    if (produtos.length === 0) {
+      return res.status(404).json({ error: "Produto não encontrado ou você não tem permissão." });
+    }
+    
+    const produto = produtos[0];
+    const dataAtual = new Date();
+    const estaAtivo = produto.destaque && new Date(produto.data_fim_destaque) >= dataAtual;
+    
+    return res.status(200).json({
+      destaque: produto.destaque,
+      estaAtivo,
+      dataInicio: produto.data_inicio_destaque,
+      dataFim: produto.data_fim_destaque,
+      diasRestantes: estaAtivo ? 
+        Math.ceil((new Date(produto.data_fim_destaque) - dataAtual) / (1000 * 60 * 60 * 24)) : 0
+    });
+  } catch (error) {
+    console.log("Erro ao verificar status de destaque:", error);
+    return res.status(500).json({ error: "Erro interno ao verificar status de destaque." });
+  }
+});
   
 
 module.exports = router;

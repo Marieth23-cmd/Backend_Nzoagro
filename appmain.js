@@ -8,6 +8,7 @@ const { Server } = require("socket.io");
 const { socketHandler } = require("./socket/socketHandler");
 
 
+
 // Inicializando o Express
 const app = express();
 
@@ -93,6 +94,7 @@ const carrinho = require("./carrinho");
 const avaliacoes = require("./avaliacoes");
 
 
+
 app.use((req, res, next) => {
     req.io = io;
     next();
@@ -108,6 +110,8 @@ app.use("/pagamentos", pagamentos);
 app.use("/login", login);
 app.use("/carrinho", carrinho);
 app.use("/avaliacoes", avaliacoes);
+
+
 
 // Log de requisições
 app.use((req, res, next) => {
