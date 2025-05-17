@@ -570,4 +570,61 @@ router.get('/:id/status-destaque', autenticarToken, async (req, res) => {
 });
   
 
+
+// Rota para listar pacotes de destaque disponíveis
+router.get('/produtos/pacotes-destaque', autenticarToken, async (req, res) => {
+  try {
+    // Definição dos pacotes disponíveis
+    const pacotes = [
+      { dias: 3, valor: 6000, descricao: "Pacote básico - 3 dias de destaque" },
+      { dias: 5, valor: 8000, descricao: "Pacote intermediário - 5 dias de destaque" },
+      { dias: 7, valor: 10000, descricao: "Pacote avançado - 7 dias de destaque" },
+      { dias: 30, valor: 20000, descricao: "Pacote premium - 30 dias de destaque" }
+    ];
+    
+    return res.status(200).json(pacotes);
+  } catch (error) {
+    console.log("Erro ao listar pacotes de destaque:", error);
+    return res.status(500).json({ error: "Erro interno ao listar pacotes de destaque." });
+  }
+});
+
+// Rota para buscar detalhes de um pagamento
+router.get('/pagamentos/:id', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Busca o pagamento junto com informações do produto
+    const [pagamentos] = await conexao.query(
+      `SELECT p.*, pr.nome as nome_produto 
+       FROM pagamentos p
+       LEFT JOIN produtos pr ON p.id_produto = pr.id_produtos
+       WHERE p.id = ? AND p.id_usuario = ?`,
+      [id, req.usuario.id_usuario]
+    );
+    
+    if (pagamentos.length === 0) {
+      return res.status(404).json({ error: "Pagamento não encontrado ou você não tem permissão para acessá-lo." });
+    }
+    
+    const pagamento = pagamentos[0];
+    
+    // Define a duração com base no valor
+    let diasDestaque;
+    if (pagamento.valor === 6000) diasDestaque = 3;
+    else if (pagamento.valor === 8000) diasDestaque = 5;
+    else if (pagamento.valor === 10000) diasDestaque = 7;
+    else if (pagamento.valor === 20000) diasDestaque = 30;
+    else diasDestaque = 3; // valor padrão
+    
+    // Adiciona a informação de dias de destaque ao objeto de resposta
+    pagamento.diasDestaque = diasDestaque;
+    
+    return res.status(200).json(pagamento);
+  } catch (error) {
+    console.log("Erro ao buscar pagamento:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar detalhes do pagamento." });
+  }
+});
+
 module.exports = router;
