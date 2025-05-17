@@ -306,7 +306,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             FROM carrinho_itens ci
             JOIN produtos p ON ci.id_produto = p.id_produtos
             JOIN estoque e ON e.id_produto = p.id_produtos
-            WHERE ci.id_carrinho = ?`
+            WHERE ci.id_carrinho = ?`,
                 [id_carrinho]
         );
 
