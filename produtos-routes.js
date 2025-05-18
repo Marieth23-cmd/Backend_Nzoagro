@@ -514,7 +514,7 @@ router.get('/destaque', async (req, res) => {
     const dataAtual = new Date();
     
     // Buscar produtos em destaque que ainda não expiraram
-    const [produtos] = await conexao.query(
+    const [produtos] = await conexao.promise().query(
       `SELECT p.* FROM produtos p 
        WHERE p.destaque = true 
        AND p.data_fim_destaque >= ?
