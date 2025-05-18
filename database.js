@@ -13,19 +13,17 @@ const pool = mysql.createPool({
   queueLimit: 0,
 });
 
-// Função para testar a conexão
-async function testarConexao() {
-  try {
-    const connection = await pool.getConnection();
-    console.log("Conexão feita com sucesso");
-    connection.release();
-  } catch (error) {
-    console.log("Erro na conexão", error);
+ pool.getConnection((error , connection) => {
+  if (error) {
+    console.error('Erro ao conectar ao banco de dados:', error);
+    return;
+  }else {
+    console.log('Conexão com o banco de dados estabelecida com sucesso!');
+  connection.release(); 
   }
-}
-
-// Testar a conexão quando o arquivo for carregado
-testarConexao();
-
+  })
+  
+  // Libera a conexão após o uso
 // Exportar o pool para uso em outros arquivos
+
 module.exports = pool;
