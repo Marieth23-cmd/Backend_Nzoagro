@@ -417,7 +417,7 @@ router.post('/:id/destaque', autenticarToken, async (req, res) => {
   
   try {
     // Verifica se o produto existe
-    const [produtos] = await conexao.query('SELECT * FROM produtos WHERE id_produtos = ?', [id]);
+    const [produtos] = await conexao.promise().query('SELECT * FROM produtos WHERE id_produtos = ?', [id]);
     const produto = produtos[0];
     
     if (!produto) {
@@ -440,7 +440,7 @@ router.post('/:id/destaque', autenticarToken, async (req, res) => {
     const valor = valorPacotes[pacote];
     
     // Registrar pagamento pendente (simplificado - em um sistema real você usaria um gateway de pagamento)
-    const [resultado] = await conexao.query(
+    const [resultado] = await conexao.promise().query(
       'INSERT INTO pagamentos (id_usuario, id_produto, valor, status, tipo) VALUES (?, ?, ?, ?, ?)',
       [req.usuario.id_usuario, id, valor, 'pendente', 'destaque']
     );
@@ -466,7 +466,7 @@ router.post('/pagamentos/:id/confirmar', autenticarToken, async (req, res) => {
   
   try {
     // Busca o pagamento
-    const [pagamentos] = await conexao.query('SELECT * FROM pagamentos WHERE id = ? AND id_usuario = ?', 
+    const [pagamentos] = await conexao.promise().query('SELECT * FROM pagamentos WHERE id = ? AND id_usuario = ?', 
       [id, req.usuario.id_usuario]);
       
     if (pagamentos.length === 0) {
@@ -476,7 +476,7 @@ router.post('/pagamentos/:id/confirmar', autenticarToken, async (req, res) => {
     const pagamento = pagamentos[0];
     
     // Atualiza o status do pagamento
-    await conexao.query('UPDATE pagamentos SET status = ? WHERE id = ?', ['pago', id]);
+    await conexao.promise().query('UPDATE pagamentos SET status = ? WHERE id = ?', ['pago', id]);
     
     // Define a duração com base no tipo de pacote
     let diasDestaque;
@@ -492,7 +492,7 @@ router.post('/pagamentos/:id/confirmar', autenticarToken, async (req, res) => {
     dataFim.setDate(dataFim.getDate() + diasDestaque);
     
     // Atualiza o produto como destaque com data de expiração
-    await conexao.query(
+    await conexao.promise().query(
       'UPDATE produtos SET destaque = ?, data_inicio_destaque = ?, data_fim_destaque = ? WHERE id_produtos = ?', 
       [true, dataAtual, dataFim, pagamento.id_produto]
     );
@@ -523,7 +523,7 @@ router.get('/destaque', async (req, res) => {
     );
     
     // Atualizar produtos com destaque expirado
-    await conexao.query(
+    await conexao.promise().query(
       `UPDATE produtos SET destaque = false 
        WHERE destaque = true AND data_fim_destaque < ?`,
       [dataAtual]
@@ -541,7 +541,7 @@ router.get('/:id/status-destaque', autenticarToken, async (req, res) => {
   const { id } = req.params;
   
   try {
-    const [produtos] = await conexao.query(
+    const [produtos] = await conexao.promise().query(
       `SELECT destaque, data_inicio_destaque, data_fim_destaque 
        FROM produtos WHERE id_produtos = ? AND id_usuario = ?`,
       [id, req.usuario.id_usuario]
@@ -595,7 +595,7 @@ router.get('/pagamentos/:id', autenticarToken, async (req, res) => {
   
   try {
     // Busca o pagamento junto com informações do produto
-    const [pagamentos] = await conexao.query(
+    const [pagamentos] = await conexao.promise().query(
       `SELECT p.*, pr.nome as nome_produto 
        FROM pagamentos p
        LEFT JOIN produtos pr ON p.id_produto = pr.id_produtos
