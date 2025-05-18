@@ -121,7 +121,9 @@ router.get("/nao-lidas/quantidade", autenticarToken, async (req, res) => {
     try {
         const sql = "SELECT COUNT(*) AS total FROM notificacoes WHERE usuarios_id = ? AND is_lida = 0";
         const [resultado] = await conexao.promise().query(sql, [usuarioId]);
-
+            console.log("Resultado da query:", resultado);
+            console.log("Enviando para o frontend:", { total: resultado[0].total });
+                
         res.json({ total: resultado[0].total });
     } catch (erro) {
         res.status(500).json({ erro: "Erro ao contar notificações", detalhe: erro.message });

@@ -60,26 +60,25 @@ router.get("/:id_produtos", async (req, res) => {
     }
   });
   
-  
   router.get("/media/:id_produtos", async (req, res) => {
-    const { id_produtos } = req.params;
-  
-    const sql = `
-      SELECT 
-        id_produtos,
-        COUNT(*) as total,
-        ROUND(AVG(LENGTH(REPLACE(comentario, '⭐', '')) + 1)) as media_estrelas
-      FROM avaliacoes
-      WHERE id_produtos = ?
-    `;
-  
-    try {
-      const [resultado] = await conexao.promise().query(sql, [id_produtos]);
-      res.json(resultado[0]);
-    } catch (erro) {
-      res.status(500).json({ erro: "Erro ao calcular média", detalhe: erro.message });
-    }
-  });
-  
+  const { id_produtos } = req.params;
+
+  const sql = `
+    SELECT 
+      id_produtos,
+      COUNT(*) as total,
+      ROUND(AVG(nota), 2) as media_estrelas
+    FROM avaliacoes
+    WHERE id_produtos = ?
+    GROUP BY id_produtos
+  `;
+
+  try {
+    const [resultado] = await conexao.promise().query(sql, [id_produtos]);
+    res.json(resultado[0] || { media_estrelas: null, total: 0 });
+  } catch (erro) {
+    res.status(500).json({ erro: "Erro ao calcular média", detalhe: erro.message });
+  }
+});
   module.exports = router;
   
