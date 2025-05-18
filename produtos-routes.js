@@ -166,8 +166,17 @@ router.get("/produto/:id", async (req, res) => {
             provincia: produto[0].provincia,
             foto_produto: produto[0].foto_produto,
             preco: produto[0].preco, 
-            unidade: estoque[0]?.Unidade || null,
-            quantidade:estoque[0]?.quantidade
+            Unidade: estoque[0]?.Unidade || null,
+            quantidade:estoque[0]?.quantidade,
+            peso_kg:produto[0].peso_kg,
+            descricao: produto[0].descricao,
+            categoria: produto[0].categoria,
+            DATA_CRIACAO: produto[0].DATA_CRIACAO,
+            destaque: produto[0].destaque,
+            data_inicio_destaque: produto[0].data_inicio_destaque,
+            data_fim_destaque: produto[0].data_fim_destaque,
+            status: estoque[0]?.status || null,
+            
           };
           
         res.json(dadosCompletos);
