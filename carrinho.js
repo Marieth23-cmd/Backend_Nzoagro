@@ -62,7 +62,6 @@ router.post("/adicionar",autenticarToken,  async (req, res) => {
         res.status(500).json({ erro: "Erro ao adicionar produto ao carrinho." });
     }
 });
-
 router.get("/", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     
@@ -79,7 +78,7 @@ router.get("/", autenticarToken, async (req, res) => {
         
         const id_carrinho = carrinho[0].id_carrinho;
         
-        // Consulta corrigida para corresponder às tabelas reais
+        // Agora busque os produtos do carrinho, juntando com a tabela de estoque
         const [produtos] = await conexao.promise().query(
             `SELECT 
                 p.id_produtos AS id, 
@@ -87,15 +86,16 @@ router.get("/", autenticarToken, async (req, res) => {
                 p.preco, 
                 p.categoria,
                 p.foto_produto, 
-                ci.quantidade
+                ci.quantidade,
+                ci.unidade AS Unidade,
+                e.Unidade AS unidade_estoque,      
+                e.quantidade AS quantidade_estoque 
             FROM carrinho_itens ci
             JOIN produtos p ON ci.id_produto = p.id_produtos
+            LEFT JOIN estoque e ON p.id_produtos = e.id_produtos
             WHERE ci.id_carrinho = ?`,
             [id_carrinho]
         );
-        
-        // Log para debug
-        console.log("Produtos encontrados:", produtos);
         
         res.json({ produtos });
     } catch (error) {
