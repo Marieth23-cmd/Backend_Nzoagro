@@ -92,7 +92,7 @@ router.get("/", autenticarToken, async (req, res) => {
                 e.quantidade AS quantidade_estoque 
             FROM carrinho_itens ci
             JOIN produtos p ON ci.id_produto = p.id_produtos
-            LEFT JOIN estoque e ON p.id_produtos = e.id_produtos
+            LEFT JOIN estoque e ON p.id_produtos = e.produto_id
             WHERE ci.id_carrinho = ?`,
             [id_carrinho]
         );
