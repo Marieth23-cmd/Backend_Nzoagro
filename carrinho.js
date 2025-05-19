@@ -8,7 +8,7 @@ const notificar = require("./utils/notificar");
 router.use(express.json());
 
 router.post("/adicionar",autenticarToken,  async (req, res) => {
-    const {  id_produto, quantidade } = req.body;
+    const {  id_produto, quantidade, unidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
     console.log("Entrou na função")
     try {
@@ -44,14 +44,14 @@ router.post("/adicionar",autenticarToken,  async (req, res) => {
         if (produtoExiste.length > 0) {
             // Se o produto já estiver no carrinho, atualizar a quantidade
             await conexao.promise().query(
-                "UPDATE carrinho_itens SET quantidade = quantidade + ? WHERE id_carrinho = ? AND id_produto = ?",
-                [quantidade, id_carrinho, id_produto]
+              " UPDATE carrinho_itens SET quantidade = quantidade + ?, unidade = ? WHERE id_carrinho = ? AND id_produto = ? "
+                [quantidade, unidade, id_carrinho, id_produto]
             );
         } else {
             // Se não, adicionar o produto ao carrinho
             await conexao.promise().query(
-                "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade) VALUES (?, ?, ?)",
-                [id_carrinho, id_produto, quantidade]
+                "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade, unidade) VALUES (?, ?, ?,?)",
+                [id_carrinho, id_produto, quantidadem, unidade]
             );
         }
         await notificar(req.usuario.id_usuario, `O produto com ${id_produto} foi adicionado ao carrinho .`);
