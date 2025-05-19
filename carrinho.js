@@ -354,6 +354,9 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         
     } catch (error) {
         console.log("Erro ao finalizar a compra:", error);
+        console.log("Erro ao finalizar a compra - Detalhes completos:", error);
+        console.log("Mensagem de erro:", error.message);
+        console.log("Stack trace:", error.stack);
         res.status(500).json({ erro: "Erro ao finalizar a compra." });
     }
 });
