@@ -286,23 +286,22 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
   }
 });
 
-
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
-
+    
     try {
         // Pega o carrinho do usuário
         const [carrinho] = await conexao.promise().query(
             "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
             [id_usuario]
         );
-
+        
         if (carrinho.length === 0) {
             return res.status(400).json({ mensagem: "Carrinho vazio." });
         }
-
+        
         const id_carrinho = carrinho[0].id_carrinho;
-
+        
         // Pega os itens do carrinho
         const [itens] = await conexao.promise().query(
             `SELECT ci.id_produto, ci.quantidade AS quantidade_carrinho, e.quantidade AS estoque_atual
@@ -312,11 +311,11 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             WHERE ci.id_carrinho = ?`,
             [id_carrinho]
         );
-
+        
         if (itens.length === 0) {
             return res.status(400).json({ mensagem: "Carrinho vazio." });
         }
-
+        
         // Verifica se todos os produtos têm estoque suficiente
         for (const item of itens) {
             if (item.quantidade_carrinho > item.estoque_atual) {
@@ -325,31 +324,40 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
                 });
             }
         }
-
+        
         // Atualiza o estoque dos produtos
         for (const item of itens) {
             const novoEstoque = item.estoque_atual - item.quantidade_carrinho;
+            
+            // Atualiza a quantidade na tabela estoque
             await conexao.promise().query(
-                "UPDATE produtos SET quantidade = ?, status = ? WHERE id_produtos = ?",
-                [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
+                "UPDATE estoque SET quantidade = ? WHERE produto_id = ?",
+                [novoEstoque, item.id_produto]
+            );
+            
+            // Atualiza apenas o status na tabela produtos
+            await conexao.promise().query(
+                "UPDATE produtos SET status = ? WHERE id_produtos = ?",
+                [novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
             );
         }
-
+        
         // Limpa o carrinho
         await conexao.promise().query(
             "DELETE FROM carrinho_itens WHERE id_carrinho = ?",
             [id_carrinho]
         );
-
-        await notificar(req.usuario.id_usuario, `Compra Finalizada com sucesso.`);
+        
+        await notificar(req.usuario.id_usuario, `Compra finalizada com sucesso.`);
         
         res.json({ mensagem: "Compra finalizada com sucesso." });
-
+        
     } catch (error) {
         console.log("Erro ao finalizar a compra:", error);
         res.status(500).json({ erro: "Erro ao finalizar a compra." });
     }
 });
+
 
 router.get("/estoque/:id_produto", autenticarToken, async (req, res) => {
     const { id_produto } = req.params;
