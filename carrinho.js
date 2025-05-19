@@ -329,16 +329,10 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         for (const item of itens) {
             const novoEstoque = item.estoque_atual - item.quantidade_carrinho;
             
-            // Atualiza a quantidade na tabela estoque
+            // Atualiza a quantidade e status na tabela estoque
             await conexao.promise().query(
-                "UPDATE estoque SET quantidade = ? WHERE produto_id = ?",
-                [novoEstoque, item.id_produto]
-            );
-            
-            // Atualiza apenas o status na tabela produtos
-            await conexao.promise().query(
-                "UPDATE produtos SET status = ? WHERE id_produtos = ?",
-                [novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
+                "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
+                [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
             );
         }
         
@@ -354,13 +348,9 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         
     } catch (error) {
         console.log("Erro ao finalizar a compra:", error);
-        console.log("Erro ao finalizar a compra - Detalhes completos:", error);
-        console.log("Mensagem de erro:", error.message);
-        console.log("Stack trace:", error.stack);
         res.status(500).json({ erro: "Erro ao finalizar a compra." });
     }
 });
-
 
 router.get("/estoque/:id_produto", autenticarToken, async (req, res) => {
     const { id_produto } = req.params;
