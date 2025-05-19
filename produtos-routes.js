@@ -518,26 +518,34 @@ router.post('/pagamentos/:id/confirmar', autenticarToken, async (req, res) => {
 });
 
 // Rota para listar produtos em destaque (ativos)
+// Rota para listar produtos em destaque (ativos) COM dados de estoque e nome do usuário
 router.get('/destaque', async (req, res) => {
   try {
     const dataAtual = new Date();
-    
-    // Buscar produtos em destaque que ainda não expiraram
+
+    // Buscar produtos em destaque, juntando com estoque e usuario
     const [produtos] = await conexao.promise().query(
-      `SELECT p.* FROM produtos p 
+      `SELECT 
+         p.*, 
+         e.quantidade, 
+         e.Unidade, 
+         u.nome as nome_vendedor
+       FROM produtos p
+       LEFT JOIN estoque e ON p.id_produtos = e.produto_id
+       LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
        WHERE p.destaque = true 
-       AND p.data_fim_destaque >= ?
+         AND p.data_fim_destaque >= ?
        ORDER BY p.data_inicio_destaque DESC`,
       [dataAtual]
     );
-    
+
     // Atualizar produtos com destaque expirado
     await conexao.promise().query(
       `UPDATE produtos SET destaque = false 
        WHERE destaque = true AND data_fim_destaque < ?`,
       [dataAtual]
     );
-    
+
     return res.status(200).json(produtos);
   } catch (error) {
     console.log("Erro ao buscar produtos em destaque:", error);
