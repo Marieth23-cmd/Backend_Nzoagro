@@ -120,55 +120,77 @@ router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornece
   }
 );
 
-
-router.get("/" ,async (req, res) => {
-   
+router.get("/", async (req, res) => {
+    // Query SQL atualizada para incluir o ID do usuário proprietário
     const sql = `SELECT 
-    p.id_produtos, 
-    p.nome, 
-    p.foto_produto, 
-    p.preco,
-    e.quantidade,
-    e.Unidade 
-  FROM produtos p
-  LEFT JOIN estoque e ON p.id_produtos = e.produto_id
-  `
+        p.id_produtos, 
+        p.nome, 
+        p.foto_produto, 
+        p.preco,
+        e.quantidade,
+        e.Unidade,
+        p.id_usuario AS idUsuario  /* Adicionando o ID do usuário proprietário */
+    FROM produtos p
+    LEFT JOIN estoque e ON p.id_produtos = e.produto_id
+    WHERE e.status = 'disponível' 
+    `
+    
     try {
-        console.log("entrou na função get")
-        console.log("Dados recebidos no body:", req.body);
+        console.log("Buscando todos os produtos");
         const [resultados] = await conexao.promise().query(sql);
-        res.json(resultados);
+        
+        // Log para depuração
+        console.log(`Encontrados ${resultados.length} produtos`);
+        
+        //converter explicitamente o ID do usuário para número
+        
+        const resultadosFormatados = resultados.map(produto => ({
+            ...produto,
+            idUsuario: Number(produto.idUsuario) || 0
+        }));
+        
+        res.json(resultadosFormatados);
     } catch (error) {
-        res.status(500).json({ erro: "Erro ao buscar os produtos", detalhe: error.message });
+        console.error("Erro ao buscar produtos:", error);
+        res.status(500).json({ erro: "Erro ao buscar os produtos", detalhes: error.message });
     }
 });
 
   
 // Rota para buscar produtos por ID
 
-
 router.get("/produto/:id", async (req, res) => {
     const produtoId = req.params.id;
-
+    
     try {
+        // Buscar produto primeiro
+        const [produto] = await conexao.promise().query(
+            "SELECT p.*, u.id_usuario FROM produtos p " +
+            "JOIN usuarios u ON p.id_usuario= u.id_usuario " +
+            "WHERE p.id_produtos = ?", 
+            [produtoId]
+        );
         
-        const [produto] = await conexao.promise().query("SELECT * FROM produtos WHERE id_produtos = ?", [produtoId]);
-
         if (produto.length === 0) {
             return res.status(404).json({ mensagem: "Produto não encontrado" });
         }
-        const [estoque] = await conexao.promise().query("SELECT quantidade, Unidade FROM estoque WHERE produto_id = ?", [produtoId]);
-
         
+        // Buscar informações de estoque
+        const [estoque] = await conexao.promise().query(
+            "SELECT quantidade, Unidade, status FROM estoque WHERE produto_id = ?", 
+            [produtoId]
+        );
+        
+        // Montar objeto de resposta com todos os dados
         const dadosCompletos = {
-            id: produto[0].id_produtos,
+            id_produtos: produto[0].id_produtos,
             nome: produto[0].nome,
             provincia: produto[0].provincia,
             foto_produto: produto[0].foto_produto,
-            preco: produto[0].preco, 
+            preco: produto[0].preco,
             Unidade: estoque[0]?.Unidade || null,
-            quantidade:estoque[0]?.quantidade,
-            peso_kg:produto[0].peso_kg,
+            quantidade: estoque[0]?.quantidade || 0,
+            peso_kg: produto[0].peso_kg,
             descricao: produto[0].descricao,
             categoria: produto[0].categoria,
             DATA_CRIACAO: produto[0].DATA_CRIACAO,
@@ -176,14 +198,17 @@ router.get("/produto/:id", async (req, res) => {
             data_inicio_destaque: produto[0].data_inicio_destaque,
             data_fim_destaque: produto[0].data_fim_destaque,
             status: estoque[0]?.status || null,
-            
-          };
-          
+            idUsuario: produto[0].id_usuario // Obtendo ID do usuário diretamente do JOIN
+        };
+        
         res.json(dadosCompletos);
     } catch (error) {
+        console.log("Erro detalhado:", error);
         res.status(500).json({ erro: "Erro ao buscar o produto", detalhes: error.message });
     }
 });
+
+
 router.put(
   "/atualizar/:id",
   autenticarToken,
