@@ -51,7 +51,7 @@ router.post("/adicionar",autenticarToken,  async (req, res) => {
             // Se não, adicionar o produto ao carrinho
             await conexao.promise().query(
                 "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade, unidade) VALUES (?, ?, ?,?)",
-                [id_carrinho, id_produto, quantidadem, unidade]
+                [id_carrinho, id_produto, quantidade, unidade]
             );
         }
         await notificar(req.usuario.id_usuario, `Adicionaste o produto com código ${id_produto} foi adicionado ao carrinho .`);
@@ -62,6 +62,8 @@ router.post("/adicionar",autenticarToken,  async (req, res) => {
         res.status(500).json({ erro: "Erro ao adicionar produto ao carrinho." });
     }
 });
+
+
 router.get("/", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     
