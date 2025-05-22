@@ -201,7 +201,7 @@ router.get("/produto/:id", async (req, res) => {
             data_fim_destaque: produto[0].data_fim_destaque,
             status: estoque[0]?.status || null,
             idUsuario: produto[0].id_usuario ,
-            id_usuario:usuarios[0].id_usuario
+            
         };
         
         res.json(dadosCompletos);

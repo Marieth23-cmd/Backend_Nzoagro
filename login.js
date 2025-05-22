@@ -97,7 +97,7 @@ router.get("/auth/verificar", autenticarToken, async (req, res) => {
             return res.status(401).json({ erro: "Usuário não autenticado" });
         }
 
-        // Buscar dados completos do usuário no banco (opcional, mas recomendado)
+        
         const [usuarios] = await conexao.promise().query(
             "SELECT id_usuario, nome, email, tipo FROM usuarios WHERE id_usuario = ?",
             [req.usuario.id_usuario]
@@ -122,8 +122,8 @@ router.get("/auth/verificar", autenticarToken, async (req, res) => {
         });
         
     } catch (error) {
-        console.error("❌ Erro ao verificar autenticação:", error);
-        res.status(500).json({ erro: "Erro no servidor" });
+        console.log("❌ Erro ao verificar autenticação:", error);
+        res.status(500).json({ erro: "Erro no servidor" , erro:error.message });
     }
 });
 
