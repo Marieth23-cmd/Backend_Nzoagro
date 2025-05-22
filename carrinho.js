@@ -6,17 +6,17 @@ const notificar = require("./utils/notificar");
 
 
 router.use(express.json());
-
-router.post("/adicionar",autenticarToken,  async (req, res) => {
-    const {  id_produto, quantidade, unidade } = req.body;
+router.post("/adicionar", autenticarToken, async (req, res) => {
+    const { id_produto, quantidade, unidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
-    console.log("Entrou na função")
+    
+    console.log("Dados recebidos:", { id_produto, quantidade, unidade, id_usuario });
+    
     try {
-
         if (quantidade < 1) {
             return res.status(400).json({ mensagem: "A quantidade deve ser maior que zero." });
         }
-        
+
         // Verificar se o carrinho já existe para o usuário
         let [carrinho] = await conexao.promise().query(
             "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
@@ -43,25 +43,28 @@ router.post("/adicionar",autenticarToken,  async (req, res) => {
 
         if (produtoExiste.length > 0) {
             // Se o produto já estiver no carrinho, atualizar a quantidade
+            // CORREÇÃO: Adicionada vírgula que estava faltando
             await conexao.promise().query(
-              " UPDATE carrinho_itens SET quantidade = quantidade + ?, unidade = ? WHERE id_carrinho = ? AND id_produto = ? "
+                "UPDATE carrinho_itens SET quantidade = quantidade + ?, unidade = ? WHERE id_carrinho = ? AND id_produto = ?",
                 [quantidade, unidade, id_carrinho, id_produto]
             );
         } else {
             // Se não, adicionar o produto ao carrinho
             await conexao.promise().query(
-                "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade, unidade) VALUES (?, ?, ?,?)",
+                "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade, unidade) VALUES (?, ?, ?, ?)",
                 [id_carrinho, id_produto, quantidade, unidade]
             );
         }
-        await notificar(req.usuario.id_usuario, `Adicionaste o produto com código ${id_produto} foi adicionado ao carrinho .`);
-        // Notificar o usuário que adicionou o produto
+        
+        await notificar(req.usuario.id_usuario, `Adicionaste o produto com código ${id_produto} foi adicionado ao carrinho.`);
+        
         res.json({ mensagem: "Produto adicionado ao carrinho." });
     } catch (error) {
-        console.log ("Erro ao adicionar produto ao carrinho:", error);
+        console.log("Erro ao adicionar produto ao carrinho:", error);
         res.status(500).json({ erro: "Erro ao adicionar produto ao carrinho." });
     }
 });
+
 
 
 router.get("/", autenticarToken, async (req, res) => {

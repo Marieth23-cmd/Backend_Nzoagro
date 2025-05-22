@@ -87,8 +87,47 @@ router.post("/logout", (req, res) => {
 });
 
 
-router.get("/auth/verificar", autenticarToken, (req, res) => {
-    res.json({ autenticado: true, usuario: req.usuario });
+router.get("/auth/verificar", autenticarToken, async (req, res) => {
+    try {
+        console.log("=== VERIFICANDO AUTENTICAÇÃO ===");
+        console.log("req.usuario do token:", req.usuario);
+        
+        if (!req.usuario || !req.usuario.id_usuario) {
+            console.log("❌ Usuário não encontrado no token");
+            return res.status(401).json({ erro: "Usuário não autenticado" });
+        }
+
+        // Buscar dados completos do usuário no banco (opcional, mas recomendado)
+        const [usuarios] = await conexao.promise().query(
+            "SELECT id_usuario, nome, email, tipo FROM usuarios WHERE id_usuario = ?",
+            [req.usuario.id_usuario]
+        );
+
+        if (usuarios.length === 0) {
+            console.log("❌ Usuário não encontrado no banco");
+            return res.status(404).json({ erro: "Usuário não encontrado" });
+        }
+
+        const usuarioCompleto = usuarios[0];
+        console.log("✅ Usuário encontrado no banco:", usuarioCompleto);
+        
+        res.json({ 
+            autenticado: true, 
+            usuario: {
+                id_usuario: usuarioCompleto.id_usuario,
+                nome: usuarioCompleto.nome,
+                email: usuarioCompleto.email,
+                tipo: usuarioCompleto.tipo
+            }
+        });
+        
+    } catch (error) {
+        console.error("❌ Erro ao verificar autenticação:", error);
+        res.status(500).json({ erro: "Erro no servidor" });
+    }
 });
+
+
+
 
 module.exports = router;
