@@ -401,7 +401,7 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
       res.status(200).json(rows);
     } catch (error) {
       console.log("Erro ao buscar produtos por categoria:", error);
-      res.status(500).json({ erro: "Erro interno ao buscar produtos" });
+      res.status(500).json({ erro: "Erro interno ao buscar produtos" , erro:error.message});
     }
   });
   

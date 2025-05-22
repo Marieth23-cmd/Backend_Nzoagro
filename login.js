@@ -99,7 +99,7 @@ router.get("/auth/verificar", autenticarToken, async (req, res) => {
 
         
         const [usuarios] = await conexao.promise().query(
-            "SELECT id_usuario, nome, email, tipo FROM usuarios WHERE id_usuario = ?",
+            "SELECT id_usuario, nome, email, tipo_usuario FROM usuarios WHERE id_usuario = ?",
             [req.usuario.id_usuario]
         );
 
@@ -117,7 +117,7 @@ router.get("/auth/verificar", autenticarToken, async (req, res) => {
                 id_usuario: usuarioCompleto.id_usuario,
                 nome: usuarioCompleto.nome,
                 email: usuarioCompleto.email,
-                tipo: usuarioCompleto.tipo
+                tipo_usuario: usuarioCompleto.tipo_usuario
             }
         });
         
