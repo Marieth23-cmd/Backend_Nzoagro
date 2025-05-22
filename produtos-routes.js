@@ -129,9 +129,11 @@ router.get("/", async (req, res) => {
         p.preco,
         e.quantidade,
         e.Unidade,
-        p.id_usuario AS idUsuario  /* Adicionando o ID do usuário proprietário */
+        u.id_usuario,
+        p.id_usuario AS idUsuario
     FROM produtos p
     LEFT JOIN estoque e ON p.id_produtos = e.produto_id
+     INNER JOIN usuarios u ON p.id_usuario = u.id_usuario
     WHERE e.status = 'disponível' 
     `
     
@@ -198,7 +200,8 @@ router.get("/produto/:id", async (req, res) => {
             data_inicio_destaque: produto[0].data_inicio_destaque,
             data_fim_destaque: produto[0].data_fim_destaque,
             status: estoque[0]?.status || null,
-            idUsuario: produto[0].id_usuario // Obtendo ID do usuário diretamente do JOIN
+            idUsuario: produto[0].id_usuario ,
+            id_usuario:usuarios[0].id_usuario
         };
         
         res.json(dadosCompletos);
