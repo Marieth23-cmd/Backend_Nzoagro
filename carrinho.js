@@ -56,7 +56,7 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
             );
         }
         
-        await notificar(req.usuario.id_usuario, `Adicionaste o produto com código ${id_produto} foi adicionado ao carrinho.`);
+        await notificar(req.usuario.id_usuario, `Adicionaste o produto com código ${id_produto}  ao carrinho.`);
         
         res.json({ mensagem: "Produto adicionado ao carrinho." });
     } catch (error) {

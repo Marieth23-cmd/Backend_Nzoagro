@@ -493,7 +493,7 @@ router.post('/:id/destaque', autenticarToken, async (req, res) => {
     });
   } catch (error) {
     console.log("Erro ao criar pedido de destaque:", error);
-    return res.status(500).json({ error: "Erro interno ao processar pedido de destaque." });
+    return res.status(500).json({ error: "Erro interno ao processar pedido de destaque." , erro:error.message });
   }
 });
 
