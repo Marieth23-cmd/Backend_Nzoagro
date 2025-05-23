@@ -381,7 +381,7 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
         ci.quantidade,
         ci.peso,
         ci.preco,
-        p.id_produto,
+        p.id_produtos,
         p.nome,
         (ci.quantidade * ci.preco) as subtotal_produto
       FROM carrinho_itens ci
