@@ -371,39 +371,66 @@ router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
 
 
 // OPÇÃO 1: Rota simplificada (usando dados do carrinho)
+// ROTA para calcular preço do carrinho com cálculo proporcional
 router.post("/calcular-preco", autenticarToken, async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
-
+  
   try {
-    // Buscar todos os itens do carrinho do usuário (agora com preço armazenado)
+    // Buscar todos os itens do carrinho do usuário com dados do produto original
     const [itensCarrinho] = await conexao.promise().query(`
       SELECT 
-        ci.quantidade,
-        ci.peso,
-        ci.preco,
+        ci.quantidade as quantidade_desejada,
+        ci.peso as peso_carrinho,
+        ci.preco as preco_carrinho,
         p.id_produtos,
         p.nome,
-        (ci.quantidade * ci.preco) as subtotal_produto
+        p.quantidade as quantidade_cadastrada,
+        p.peso_kg as peso_cadastrado,
+        p.preco as preco_cadastrado
       FROM carrinho_itens ci
       JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
       JOIN produtos p ON ci.id_produto = p.id_produtos
       WHERE c.id_usuario = ?
     `, [id_usuario]);
-
+    
     if (itensCarrinho.length === 0) {
       return res.status(404).json({ erro: "Carrinho vazio." });
     }
-
-    // Calcular totais
+    
+    // Calcular totais com proporção correta
     let subtotalProdutos = 0;
     let pesoTotal = 0;
-
-    itensCarrinho.forEach(item => {
-      subtotalProdutos += item.subtotal_produto;
-      pesoTotal += (item.peso * item.quantidade);
+    
+    const itensCalculados = itensCarrinho.map(item => {
+      // Calcular proporção baseada na quantidade desejada vs cadastrada
+      const proporcao = item.quantidade_desejada / item.quantidade_cadastrada;
+      
+      // Calcular preço e peso proporcionais
+      const preco_final = item.preco_cadastrado * proporcao;
+      const peso_final = item.peso_cadastrado * proporcao;
+      
+      // Calcular subtotal do produto
+      const subtotal_produto = preco_final;
+      
+      // Adicionar aos totais
+      subtotalProdutos += subtotal_produto;
+      pesoTotal += peso_final;
+      
+      return {
+        id_produtos: item.id_produtos,
+        nome: item.nome,
+        quantidade_desejada: item.quantidade_desejada,
+        quantidade_cadastrada: item.quantidade_cadastrada,
+        preco_cadastrado: item.preco_cadastrado,
+        peso_cadastrado: item.peso_cadastrado,
+        proporcao: proporcao,
+        preco_final: preco_final,
+        peso_final: peso_final,
+        subtotal_produto: subtotal_produto
+      };
     });
-
-    // Função para calcular frete
+    
+    // Função para calcular frete baseado no peso total
     const calcularFrete = (peso) => {
       if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
       if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
@@ -415,27 +442,30 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
       if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
       return { base: 0, comissao: 0 };
     };
-
+    
     const frete = calcularFrete(pesoTotal);
     const totalFinal = subtotalProdutos + frete.base + frete.comissao;
-
-    console.log("Cálculo do carrinho:", {
+    
+    console.log("Cálculo do carrinho com proporção:", {
+      itensCalculados,
       subtotalProdutos,
       pesoTotal,
       frete: frete.base,
       comissao: frete.comissao,
       totalFinal
     });
-
+    
     res.json({
-      itens: itensCarrinho,
-      subtotalProdutos,
-      pesoTotal,
-      frete: frete.base,
-      comissao: frete.comissao,
-      totalFinal
+      itens: itensCalculados,
+      resumo: {
+        subtotalProdutos: Math.round(subtotalProdutos),
+        pesoTotal: Math.round(pesoTotal * 100) / 100, // Arredondar para 2 casas decimais
+        frete: frete.base,
+        comissao: frete.comissao,
+        totalFinal: Math.round(totalFinal)
+      }
     });
-
+    
   } catch (error) {
     console.log("Erro ao calcular o preço:", error);
     res.status(500).json({
@@ -444,8 +474,6 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
     });
   }
 });
-
-
 
 
 
