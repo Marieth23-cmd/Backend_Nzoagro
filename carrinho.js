@@ -384,11 +384,12 @@ router.post("/calcular-preco", autenticarToken, async (req, res) => {
         ci.preco as preco_carrinho,
         p.id_produtos,
         p.nome,
-        p.quantidade as quantidade_cadastrada,
+        e.quantidade as quantidade_cadastrada,
         p.peso_kg as peso_cadastrado,
         p.preco as preco_cadastrado
       FROM carrinho_itens ci
       JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
+        JOIN estoque e ON ci.id_produto = e.produto_id
       JOIN produtos p ON ci.id_produto = p.id_produtos
       WHERE c.id_usuario = ?
     `, [id_usuario]);

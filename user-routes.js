@@ -310,4 +310,19 @@ router.delete("/deletar", autenticarToken, async (req, res) => {
     }
 });
 
+
+
+router.get("/total-usuarios", async (req, res) => {
+  const sql = `SELECT COUNT(*) as total_usuarios FROM usuarios`;
+
+  try {
+    const [resultado] = await conexao.promise().query(sql);
+    res.json(resultado[0]);
+  } catch (erro) {
+    res.status(500).json({ erro: "Erro ao contar usuários", detalhe: erro.message });
+  }
+})
+
+
+
 module.exports = router;
