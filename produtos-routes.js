@@ -215,7 +215,7 @@ router.get("/produto/:id", async (req, res) => {
 router.put(
   "/atualizar/:id",
   autenticarToken,
-  autorizarUsuario(["Agricultor", "Fornecedor"]),
+  autorizarUsuario(["Agricultor", "Fornecedor" , "Aministrador"]),
   upload.single("foto_produto"), // Middleware de upload
   async (req, res) => {
     const produtoId = req.params.id;
@@ -294,7 +294,7 @@ router.put(
     }
   }
 );
-router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]) ,async (req, res) => {
+router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor","Administrador"]) ,async (req, res) => {
     const produtoId = req.params.id;
     const sql = "DELETE FROM produtos WHERE id_produtos = ?";
 

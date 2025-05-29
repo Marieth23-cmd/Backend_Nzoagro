@@ -85,8 +85,6 @@ router.get("/especifico", autenticarToken, async (req, res) => {
 
 
 
-
-
 router.post("/criar", autenticarToken, async (req, res) => {
     const id_usuario= req.usuario.id_usuario
     const { estado, valor_total, rua, bairro, pais, municipio, referencia, provincia, numero, itens } = req.body;
@@ -265,24 +263,6 @@ router.delete("/:id_pedido", autenticarToken, async (req, res) => {
       console.log("Erro ao excluir pedido:", error);
       res.status(500).json({ message: "Erro ao excluir pedido", error: error.message });
     }
-  });
+  })
   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 module.exports = router;
