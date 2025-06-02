@@ -2,21 +2,20 @@ const express = require("express");
 const router = express.Router();
 const conexao = require("./database");
 const { v4: uuidv4 } = require('uuid');
-
+const crypto = require('crypto');
+const { autenticarToken } = require("./mildwaretoken");
 router.use(express.json());
 
 // ========================================
 // CONFIGURAÇÕES DINÂMICAS DA PLATAFORMA NZOAGRO
 // ========================================
 const CONFIGURACOES_PLATAFORMA = {
-    // Comissões da plataforma (%) - VALORES DINÂMICOS
-    COMISSAO_PADRAO: 0.10,        // 10% de comissão padrão (conforme solicitado)
+    COMISSAO_PADRAO: 0.10,        // 10% de comissão padrão
     COMISSAO_PREMIUM: 0.08,       // 8% para usuários premium
     COMISSAO_PARCEIRO: 0.05,      // 5% para parceiros especiais
     
     // Configurações de frete DINÂMICAS baseadas no peso
     FRETE_POR_PESO: {
-        // Peso em kg: { base: valor_frete, comissao: comissao_frete }
         '10-30': { base: 10000, comissao: 1000 },
         '31-50': { base: 15000, comissao: 1500 },
         '51-70': { base: 20000, comissao: 2000 },
@@ -25,35 +24,37 @@ const CONFIGURACOES_PLATAFORMA = {
         '301-500': { base: 50000, comissao: 5000 },
         '501-1000': { base: 80000, comissao: 8000 },
         '1001-2000': { base: 120000, comissao: 12000 }
-    },
-    
-    // Conta da plataforma (VIRTUAL - será criada fisicamente quando integrar APIs)
-    CONTA_PLATAFORMA: {
-        titular: 'NzoAgro Platform Ltd',
-        numero_conta: 'NZOAGRO_MASTER_001',
-        banco: 'Conta Virtual Centralizada',
-        tipo: 'VIRTUAL', // Indica que é uma conta lógica por enquanto
-        status: 'ATIVA',
-        criada_em: new Date().toISOString(),
-        observacao: 'Conta virtual para controle interno. Será criada fisicamente na integração com APIs de pagamento.'
     }
 };
 
-// TIPOS DE PAGAMENTO DINÂMICOS - Apenas Unitel Money e Africell Money
+
+
+
+
 const TIPOS_PAGAMENTO = {
     'unitel_money': { 
         nome: 'Unitel Money', 
-        taxa: 0.02,           // 2% taxa dinâmica
+        taxa: 0.02,           // 2% taxa
         ativo: true,
-        codigo_ussd: '*405#',
+        codigo_ussd: '*409#',
+        operadora: 'Unitel',
         descricao: 'Pagamento via Unitel Money'
     },
     'africell_money': { 
         nome: 'Africell Money', 
-        taxa: 0.018,          // 1.8% taxa dinâmica
+        taxa: 0.018,          // 1.8% taxa
         ativo: true,
-        codigo_ussd: '*144#',
+        codigo_ussd: '*777#',
+        operadora: 'Africell',
         descricao: 'Pagamento via Africell Money'
+    },
+    'multicaixa_express': { 
+        nome: 'Multicaixa Express', 
+        taxa: 0.025,          // 2.5% taxa
+        ativo: true,
+        codigo_ussd: null,    // Não usa USSD
+        operadora: 'MulticaixaExpress',
+        descricao: 'Pagamento via Multicaixa Express (ATM/App)'
     }
 };
 
@@ -61,40 +62,111 @@ const STATUS_PAGAMENTO = {
     PENDENTE: 'pendente',
     PROCESSANDO: 'processando',
     PAGO: 'pago',
-    RETIDO: 'retido',           // 💰 Dinheiro na conta da plataforma
-    LIBERADO: 'liberado',       // ✅ Distribuído para vendedor
+    RETIDO: 'retido',           
+    LIBERADO: 'liberado',       
     CANCELADO: 'cancelado',
-    REEMBOLSADO: 'reembolsado',
-    CONTESTADO: 'contestado'
+    REEMBOLSADO: 'reembolsado'
+};
+
+
+// ========================================
+// FUNÇÃO: GERAR REFERÊNCIA DE PAGAMENTO
+// ========================================
+const gerarReferenciaPagamento = (valorTotal, metodoPagamento) => {
+    // Prefixos por operadora (mais realista)
+    const prefixos = {
+        'unitel_money': 'UM',
+        'africell_money': 'AM', 
+        'multicaixa_express': 'MX'
+    };
+    
+    // Gerar referência mais compacta
+    const timestamp = Date.now().toString().slice(-6); // 6 dígitos
+    const random = Math.floor(Math.random() * 999).toString().padStart(3, '0'); // 3 dígitos
+    const prefixo = prefixos[metodoPagamento] || 'PG';
+    
+    const referencia = `${prefixo}${timestamp}${random}`;
+    
+    return {
+        referencia: referencia,
+        valor_total: Math.round(valorTotal),
+        metodo_pagamento: metodoPagamento,
+        valida_ate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: 'ativa',
+        criada_em: new Date()
+    };
 };
 
 // ========================================
-// FUNÇÃO: BUSCAR CONFIGURAÇÕES DINÂMICAS DO BD
+// FUNÇÃO: CRIAR/BUSCAR CONTA VIRTUAL DO USUÁRIO
 // ========================================
-const buscarConfiguracoesDinamicas = async () => {
+const criarOuBuscarContaVirtual = async (idUsuario, tipoUsuario = 'Agricultor') => {
     try {
-        const [config] = await conexao.promise().query(`
-            SELECT * FROM configuracoes_plataforma 
-            WHERE ativo = 1 
-            ORDER BY data_atualizacao DESC 
-            LIMIT 1
-        `);
+        // Verificar se já existe conta virtual para o usuário
+        const [contaExistente] = await conexao.promise().query(`
+            SELECT * FROM contas_virtuais 
+            WHERE id_usuario = ? AND tipo_conta = ?
+        `, [idUsuario, tipoUsuario]);
         
-        if (config.length > 0) {
-            // Atualizar configurações com valores do banco
-            CONFIGURACOES_PLATAFORMA.COMISSAO_PADRAO = config[0].comissao_padrao || 0.10;
-            CONFIGURACOES_PLATAFORMA.COMISSAO_PREMIUM = config[0].comissao_premium || 0.08;
-            
-            // Atualizar frete por peso se houver no banco
-            if (config[0].frete_config) {
-                const freteConfig = JSON.parse(config[0].frete_config);
-                CONFIGURACOES_PLATAFORMA.FRETE_POR_PESO = { ...CONFIGURACOES_PLATAFORMA.FRETE_POR_PESO, ...freteConfig };
-            }
+        if (contaExistente.length > 0) {
+            return contaExistente[0];
         }
-        return CONFIGURACOES_PLATAFORMA;
+        
+        // Criar nova conta virtual
+        const numeroUnitel = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+        const numeroAfricell = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+        
+        const [resultado] = await conexao.promise().query(`
+            INSERT INTO contas_virtuais 
+            (id_usuario, tipo_conta, saldo, numero_africell, numero_Unitel, operadora, data_criacao)
+            VALUES (?, ?, 0.00, ?, ?, 'Unitel', NOW())
+        `, [idUsuario, tipoUsuario, numeroAfricell, numeroUnitel]);
+        
+        return {
+            id: resultado.insertId,
+            id_usuario: idUsuario,
+            tipo_conta: tipoUsuario,
+            saldo: 0.00,
+            numero_africell: numeroAfricell,
+            numero_Unitel: numeroUnitel,
+            operadora: 'Unitel'
+        };
+        
     } catch (error) {
-        console.log("Usando configurações padrão:", error.message);
-        return CONFIGURACOES_PLATAFORMA;
+        console.error("Erro ao criar conta virtual:", error);
+        throw error;
+    }
+};
+
+// ========================================
+// FUNÇÃO: REGISTRAR MOVIMENTO NA CONTA VIRTUAL
+// ========================================
+const registrarMovimento = async (contaVirtualId, tipo, valor, descricao) => {
+    try {
+        await conexao.promise().query(`
+            INSERT INTO movimentos_contas_virtuais 
+            (conta_virtual_id, tipo, valor, descricao, data_movimentacao)
+            VALUES (?, ?, ?, ?, NOW())
+        `, [contaVirtualId, tipo, valor, descricao]);
+        
+        // Atualizar saldo da conta
+        if (tipo === 'credito') {
+            await conexao.promise().query(`
+                UPDATE contas_virtuais 
+                SET saldo = saldo + ? 
+                WHERE id = ?
+            `, [valor, contaVirtualId]);
+        } else if (tipo === 'debito') {
+            await conexao.promise().query(`
+                UPDATE contas_virtuais 
+                SET saldo = saldo - ? 
+                WHERE id = ?
+            `, [valor, contaVirtualId]);
+        }
+        
+    } catch (error) {
+        console.error("Erro ao registrar movimento:", error);
+        throw error;
     }
 };
 
@@ -113,412 +185,531 @@ const calcularFrete = (peso) => {
     return { base: 0, comissao: 0 };
 };
 
+
+  const validarCompatibilidadeOperadoras = async (tipoPagamento, idVendedor, idTransportadora = null) => {
+    try {
+        const operadoraPagamento = TIPOS_PAGAMENTO[tipoPagamento].operadora;
+        const problemas = [];
+        const avisos = [];
+        
+        // 1. Buscar conta virtual do vendedor
+        const contaVendedor = await criarOuBuscarContaVirtual(idVendedor, 'Agricultor');
+        
+        // 2. Verificar se vendedor tem conta na operadora do pagamento
+        let vendedorCompativel = false;
+        if (operadoraPagamento === 'Unitel' && contaVendedor.numero_unitel) {
+            vendedorCompativel = true;
+        } else if (operadoraPagamento === 'Africell' && contaVendedor.numero_africell) {
+            vendedorCompativel = true;
+        } else if (operadoraPagamento === 'MulticaixaExpress') {
+            // Multicaixa Express pode transferir para qualquer operadora
+            vendedorCompativel = true;
+            avisos.push('Multicaixa Express - transferência será convertida automaticamente');
+        }
+        
+        if (!vendedorCompativel) {
+            problemas.push({
+                tipo: 'vendedor',
+                operadora: operadoraPagamento,
+                mensagem: `Vendedor não possui conta ${operadoraPagamento}`,
+                solucao: `Cadastre uma conta ${operadoraPagamento} no perfil`
+            });
+        }
+        
+        // 3. Verificar transportadora (se fornecida)
+        if (idTransportadora) {
+            const contaTransportadora = await criarOuBuscarContaVirtual(idTransportadora, 'Transportadora');
+            
+            let transportadoraCompativel = false;
+            if (operadoraPagamento === 'Unitel' && contaTransportadora.numero_unitel) {
+                transportadoraCompativel = true;
+            } else if (operadoraPagamento === 'Africell' && contaTransportadora.numero_africell) {
+                transportadoraCompativel = true;
+            } else if (operadoraPagamento === 'MulticaixaExpress') {
+                transportadoraCompativel = true;
+                avisos.push('Multicaixa Express - transferência para transportadora será convertida');
+            }
+            
+            if (!transportadoraCompativel) {
+                problemas.push({
+                    tipo: 'transportadora',
+                    operadora: operadoraPagamento,
+                    mensagem: `Transportadora não possui conta ${operadoraPagamento}`,
+                    solucao: `Solicite cadastro de conta ${operadoraPagamento}`
+                });
+            }
+        }
+        
+        return {
+            compativel: problemas.length === 0,
+            problemas: problemas,
+            avisos: avisos,
+            operadora_pagamento: operadoraPagamento
+        };
+        
+    } catch (error) {
+        console.error("Erro na validação de operadoras:", error);
+        return {
+            compativel: false,
+            problemas: [{ tipo: 'sistema', mensagem: 'Erro interno na validação' }],
+            avisos: []
+        };
+    }
+};
+
 // ========================================
-// FUNÇÃO: CALCULAR DIVISÃO AUTOMÁTICA COM VALORES DINÂMICOS
+// FUNÇÃO: LISTAR MÉTODOS DE PAGAMENTO COMPATÍVEIS
+// ========================================
+const listarMetodosPagamentoCompativeis = async (idVendedor, idTransportadora = null) => {
+    try {
+        const contaVendedor = await criarOuBuscarContaVirtual(idVendedor, 'Agricultor');
+        const contaTransportadora = idTransportadora ? 
+            await criarOuBuscarContaVirtual(idTransportadora, 'Transportadora') : null;
+        
+        const metodosCompativeis = [];
+        
+        for (const [chave, metodo] of Object.entries(TIPOS_PAGAMENTO)) {
+            if (!metodo.ativo) continue;
+            
+            let compativel = true;
+            const restricoes = [];
+            
+            // Verificar compatibilidade do vendedor
+            if (metodo.operadora === 'Unitel' && !contaVendedor.numero_unitel) {
+                compativel = false;
+                restricoes.push('Vendedor sem conta Unitel');
+            } else if (metodo.operadora === 'Africell' && !contaVendedor.numero_africell) {
+                compativel = false;
+                restricoes.push('Vendedor sem conta Africell');
+            }
+            
+            // Verificar compatibilidade da transportadora
+            if (contaTransportadora) {
+                if (metodo.operadora === 'Unitel' && !contaTransportadora.numero_unitel) {
+                    compativel = false;
+                    restricoes.push('Transportadora sem conta Unitel');
+                } else if (metodo.operadora === 'Africell' && !contaTransportadora.numero_africell) {
+                    compativel = false;
+                    restricoes.push('Transportadora sem conta Africell');
+                }
+            }
+            
+            metodosCompativeis.push({
+                chave: chave,
+                nome: metodo.nome,
+                taxa: `${(metodo.taxa * 100).toFixed(1)}%`,
+                operadora: metodo.operadora,
+                compativel: compativel,
+                restricoes: restricoes,
+                metodos_disponveis: metodo.metodos
+            });
+        }
+        
+        return metodosCompativeis;
+        
+    } catch (error) {
+        console.error("Erro ao listar métodos compatíveis:", error);
+        return [];
+    }
+};
+
+// ========================================
+// MIDDLEWARE: VALIDAR ANTES DO PROCESSAMENTO
+// ========================================
+
+const middlewareValidacaoOperadoras = async (req, res, next) => {
+    try {
+        const { tipo_pagamento, id_vendedor, id_transportadora } = req.body;
+        
+        // Validar compatibilidade
+        const resultadoValidacao = await validarCompatibilidadeOperadoras(
+            tipo_pagamento, 
+            id_vendedor, 
+            id_transportadora
+        );
+        
+        if (!resultadoValidacao.compativel) {
+            return res.status(400).json({
+                sucesso: false,
+                erro: 'Incompatibilidade de operadoras',
+                detalhes: resultadoValidacao.problemas,
+                sugestao: 'Escolha outro método de pagamento ou atualize as contas dos usuários'
+            });
+        }
+        
+        // Se há avisos, incluir na resposta mas continuar
+        if (resultadoValidacao.avisos.length > 0) {
+            req.avisos_operadoras = resultadoValidacao.avisos;
+        }
+        
+        next();
+        
+    } catch (error) {
+        console.error("Erro no middleware de validação:", error);
+        return res.status(500).json({
+            sucesso: false,
+            erro: 'Erro interno na validação de operadoras'
+        });
+    }
+};
+
+// ========================================
+// FUNÇÃO: SUA FUNÇÃO ORIGINAL DE DIVISÃO (SEM ALTERAÇÕES)
 // ========================================
 const calcularDivisaoValores = async (valorBruto, tipoPagamento, pesoTotal = 10, usuarioPremium = false) => {
-    // Buscar configurações atualizadas
-    const config = await buscarConfiguracoesDinamicas();
+    // 1. Taxa do provedor de pagamento
+    const taxaProvedor = Math.round(valorBruto * TIPOS_PAGAMENTO[tipoPagamento].taxa);
     
-    // 1. Taxa do provedor de pagamento (dinâmica)
-    const taxaProvedor = valorBruto * TIPOS_PAGAMENTO[tipoPagamento].taxa;
-    
-    // 2. Cálculo do frete DINÂMICO baseado no peso
+    // 2. Cálculo do frete
     const dadosFrete = calcularFrete(pesoTotal);
     const valorFreteBase = dadosFrete.base;
     const comissaoFrete = dadosFrete.comissao;
     const valorFreteTotal = valorFreteBase + comissaoFrete;
     
-    // 3. Comissão da plataforma DINÂMICA (10% conforme solicitado)
-    let taxaComissao = config.COMISSAO_PADRAO; // 10%
-    
+    // 3. Comissão da plataforma
+    let taxaComissao = CONFIGURACOES_PLATAFORMA.COMISSAO_PADRAO; // 10%
     if (usuarioPremium) {
-        taxaComissao = config.COMISSAO_PREMIUM; // 8%
+        taxaComissao = CONFIGURACOES_PLATAFORMA.COMISSAO_PREMIUM; // 8%
     }
     
     const valorSemTaxas = valorBruto - taxaProvedor - valorFreteTotal;
-    const comissaoPlataforma = valorSemTaxas * taxaComissao;
+    const comissaoPlataforma = Math.round(valorSemTaxas * taxaComissao);
     
     // 4. Valor líquido que o vendedor recebe
     const valorLiquidoVendedor = valorSemTaxas - comissaoPlataforma;
     
     return {
         valor_bruto: Math.round(valorBruto),
-        taxa_provedor: Math.round(taxaProvedor),
-        valor_frete_base: Math.round(valorFreteBase),
-        comissao_frete: Math.round(comissaoFrete),
-        valor_frete_total: Math.round(valorFreteTotal),
-        comissao_plataforma: Math.round(comissaoPlataforma),
+        taxa_provedor: taxaProvedor,
+        valor_frete_base: valorFreteBase,
+        comissao_frete: comissaoFrete,
+        valor_frete_total: valorFreteTotal,
+        comissao_plataforma: comissaoPlataforma,
         valor_liquido_vendedor: Math.round(valorLiquidoVendedor),
         
-        // Resumo da divisão
         divisao: {
             vendedor: Math.round(valorLiquidoVendedor),
-            transportadora: Math.round(valorFreteBase),
-            comissao_transporte: Math.round(comissaoFrete),
-            plataforma: Math.round(comissaoPlataforma),
-            provedor_pagamento: Math.round(taxaProvedor)
-        },
-        
-        // Detalhes dos cálculos
-        detalhes_calculo: {
-            taxa_comissao_aplicada: `${(taxaComissao * 100).toFixed(1)}%`,
-            taxa_provedor_aplicada: `${(TIPOS_PAGAMENTO[tipoPagamento].taxa * 100).toFixed(1)}%`,
-            peso_total: pesoTotal,
-            faixa_peso: obterFaixaPeso(pesoTotal)
+            transportadora: valorFreteBase,
+            comissao_transporte: comissaoFrete,
+            plataforma: comissaoPlataforma,
+            provedor_pagamento: taxaProvedor
         }
     };
 };
 
-// Função auxiliar para obter faixa de peso
-const obterFaixaPeso = (peso) => {
-    if (peso >= 10 && peso <= 30) return '10-30kg';
-    if (peso >= 31 && peso <= 50) return '31-50kg';
-    if (peso >= 51 && peso <= 70) return '51-70kg';
-    if (peso >= 71 && peso <= 100) return '71-100kg';
-    if (peso >= 101 && peso <= 300) return '101-300kg';
-    if (peso >= 301 && peso <= 500) return '301-500kg';
-    if (peso >= 501 && peso <= 1000) return '501-1000kg';
-    if (peso >= 1001 && peso <= 2000) return '1001-2000kg';
-    return 'Fora da faixa';
+// ========================================
+// FUNÇÃO: NOVA - CALCULAR DIVISÃO COM VALIDAÇÃO DE OPERADORAS
+// ========================================
+
+const calcularDivisaoComValidacao = async (
+    valorBruto, 
+    tipoPagamento, 
+    idVendedor,
+    idTransportadora = null,
+    pesoTotal = 10, 
+    usuarioPremium = false
+) => {
+    // 1. PRIMEIRO: Validar operadoras
+    const validacao = await validarCompatibilidadeOperadoras(
+        tipoPagamento, 
+        idVendedor, 
+        idTransportadora
+    );
+    
+    if (!validacao.compativel) {
+        throw new Error(`Incompatibilidade de operadoras: ${JSON.stringify(validacao.problemas)}`);
+    }
+    
+    // 2. SEGUNDO: Usar sua função original de cálculo
+    const calculoOriginal = calcularDivisaoValores(
+        valorBruto, 
+        tipoPagamento, 
+        pesoTotal, 
+        usuarioPremium
+    );
+    
+    // 3. TERCEIRO: Adicionar informações de validação
+    return {
+        ...calculoOriginal,
+        validacao_operadoras: {
+            operadora_pagamento: validacao.operadora_pagamento,
+            compativel: true,
+            avisos: validacao.avisos
+        }
+    };
 };
 
-// ========================================
-// ROTA: CALCULAR PREÇO DO CARRINHO (USANDO SUA LÓGICA)
-// ========================================
-router.post("/calcular-preco", async (req, res) => {
-    const { 
-        id_usuario, 
-        usuario_premium = false,
-        tipo_pagamento = 'unitel_money'
-    } = req.body;
 
-    if (!id_usuario) {
-        return res.status(400).json({ erro: "ID do usuário é obrigatório." });
+// ========================================
+// ROTA: GERAR REFERÊNCIA DE PAGAMENTO
+// ========================================
+router.post("/gerar-referencia", autenticarToken, async (req, res) => {
+    const {tipo_pagamento,valor_total,carrinho_id  } = req.body;
+    const id_usuario = req.usuario.id_usuario;
+    const id_vendedor = req.body.id_vendedor || id_usuario; // Se não passar, assume o próprio usuário
+    
+    if (!id_usuario || !tipo_pagamento || !valor_total) {
+        return res.status(400).json({ 
+            erro: "Dados obrigatórios: id_usuario, tipo_pagamento, valor_total" 
+        });
+    }
+
+    if (!TIPOS_PAGAMENTO[tipo_pagamento]) {
+        return res.status(400).json({ 
+            erro: "Tipo de pagamento inválido",
+            tipos_disponiveis: Object.keys(TIPOS_PAGAMENTO)
+        });
     }
 
     try {
-        // Buscar todos os itens do carrinho do usuário com dados do produto original
-        const [itensCarrinho] = await conexao.promise().query(`
-            SELECT 
-                ci.quantidade as quantidade_desejada,
-                ci.peso as peso_carrinho,
-                ci.preco as preco_carrinho,
-                ci.unidade as Unidade,
-                p.id_produtos,
-                p.nome,
-                e.quantidade as quantidade_cadastrada,
-                p.peso_kg as peso_cadastrado,
-                p.preco as preco_cadastrado
-            FROM carrinho_itens ci
-            JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
-            JOIN estoque e ON ci.id_produto = e.produto_id
-            JOIN produtos p ON ci.id_produto = p.id_produtos
-            WHERE c.id_usuario = ?
+
+
+        const validacao = await validarCompatibilidadeOperadoras(
+            tipo_pagamento, 
+            id_vendedor, 
+            id_transportadora
+        );
+        
+        if (!validacao.compativel) {
+            return res.status(400).json({
+                erro: "Incompatibilidade de operadoras",
+                problemas: validacao.problemas,
+                sugestao: "Escolha outro método ou atualize as contas"
+            });
+        }
+        // Verificar se o usuário existe
+        const [usuario] = await conexao.promise().query(`
+            SELECT * FROM usuarios WHERE id_usuario = ?
         `, [id_usuario]);
 
-        if (itensCarrinho.length === 0) {
-            return res.status(404).json({ erro: "Carrinho vazio." });
+        if (usuario.length === 0) {
+            return res.status(404).json({ erro: "Usuário não encontrado" });
         }
 
-        // Calcular totais com proporção correta (USANDO SUA LÓGICA)
-        let subtotalProdutos = 0;
-        let pesoTotal = 0;
-
-        const itensCalculados = itensCarrinho.map(item => {
-            // Calcular proporção baseada na quantidade desejada vs cadastrada
-            const proporcao = item.quantidade_desejada / item.quantidade_cadastrada;
-            
-            // Calcular preço e peso proporcionais
-            const preco_final = item.preco_cadastrado * proporcao;
-            const peso_final = item.peso_cadastrado * proporcao;
-            
-            // Calcular subtotal do produto
-            const subtotal_produto = preco_final;
-            
-            // Adicionar aos totais
-            subtotalProdutos += subtotal_produto;
-            pesoTotal += peso_final;
-            
-            return {
-                id_produtos: item.id_produtos,
-                nome: item.nome,
-                quantidade_desejada: item.quantidade_desejada,
-                quantidade_cadastrada: item.quantidade_cadastrada,
-                preco_cadastrado: item.preco_cadastrado,
-                peso_cadastrado: item.peso_cadastrado,
-                Unidade: item.Unidade,
-                proporcao: Math.round(proporcao * 100) / 100,
-                preco_final: Math.round(preco_final),
-                peso_final: Math.round(peso_final * 100) / 100,
-                subtotal_produto: Math.round(subtotal_produto)
-            };
-        });
-
-        // Calcular frete baseado no peso total (SUA LÓGICA)
-        const frete = calcularFrete(pesoTotal);
-        const totalFinal = subtotalProdutos + frete.base + frete.comissao;
-
-        // CALCULAR DIVISÃO AUTOMÁTICA DOS VALORES
-        const calculoDivisao = await calcularDivisaoValores(
-            totalFinal,
+        // Gerar referência
+        const dadosReferencia = gerarReferenciaPagamento(valor_total, tipo_pagamento);
+        
+        // Salvar referência no banco (você precisa criar esta tabela)
+        const [resultado] = await conexao.promise().query(`
+            INSERT INTO referencias_pagamento 
+            (referencia, id_usuario, tipo_pagamento, valor_total, carrinho_id, status, valida_ate, criada_em)
+            VALUES (?, ?, ?, ?, ?, 'ativa', ?, NOW())
+        `, [
+            dadosReferencia.referencia,
+            id_usuario,
             tipo_pagamento,
-            pesoTotal,
-            usuario_premium
-        );
+            dadosReferencia.valor_total,
+            carrinho_id,
+            dadosReferencia.valida_ate
+        ]);
 
-        console.log("Cálculo do carrinho com divisão automática:", {
-            itensCalculados,
-            subtotalProdutos: Math.round(subtotalProdutos),
-            pesoTotal: Math.round(pesoTotal * 100) / 100,
-            frete: frete,
-            totalFinal: Math.round(totalFinal),
-            divisao_valores: calculoDivisao
-        });
+        const metodoPagamento = TIPOS_PAGAMENTO[tipo_pagamento];
 
         res.json({
-            itens: itensCalculados,
-            resumo: {
-                subtotalProdutos: Math.round(subtotalProdutos),
-                pesoTotal: Math.round(pesoTotal * 100) / 100,
-                frete: frete.base,
-                comissao_frete: frete.comissao,
-                totalFinal: Math.round(totalFinal)
+            sucesso: true,
+            referencia: {
+                codigo: dadosReferencia.referencia,
+                valor: dadosReferencia.valor_total,
+                metodo_pagamento: metodoPagamento.nome,
+                operadora: metodoPagamento.operadora,
+                taxa: `${(metodoPagamento.taxa * 100).toFixed(1)}%`,
+                valida_ate: dadosReferencia.valida_ate,
+                instrucoes: {
+                    unitel_money: metodoPagamento.codigo_ussd ? `Digite ${metodoPagamento.codigo_ussd} e insira a referência: ${dadosReferencia.referencia}` : null,
+                    africell_money: metodoPagamento.codigo_ussd ? `Digite ${metodoPagamento.codigo_ussd} e insira a referência: ${dadosReferencia.referencia}` : null,
+                    multicaixa_express: "Vá ao ATM Multicaixa ou use o App Multicaixa Express, selecione 'Pagamento de Serviços' e insira a referência"
+                }[tipo_pagamento]
             },
-            divisao_pagamento: {
-                valor_total_a_pagar: calculoDivisao.valor_bruto,
-                distribuicao: {
-                    vendedor: {
-                        valor: calculoDivisao.valor_liquido_vendedor,
-                        descricao: "Valor líquido pela venda (após comissões de 10%)"
-                    },
-                    transportadora: {
-                        valor: calculoDivisao.valor_frete_base,
-                        descricao: `Frete base para ${pesoTotal}kg`
-                    },
-                    comissao_transporte: {
-                        valor: calculoDivisao.comissao_frete,
-                        descricao: "Comissão do transporte"
-                    },
-                    plataforma: {
-                        valor: calculoDivisao.comissao_plataforma,
-                        descricao: `Comissão NzoAgro (${calculoDivisao.detalhes_calculo.taxa_comissao_aplicada})`
-                    },
-                    provedor_pagamento: {
-                        valor: calculoDivisao.taxa_provedor,
-                        descricao: `Taxa ${TIPOS_PAGAMENTO[tipo_pagamento].nome} (${calculoDivisao.detalhes_calculo.taxa_provedor_aplicada})`
-                    }
-                }
-            },
-            opcoes_pagamento: Object.keys(TIPOS_PAGAMENTO).filter(key => TIPOS_PAGAMENTO[key].ativo),
-            conta_plataforma: {
-                ...CONFIGURACOES_PLATAFORMA.CONTA_PLATAFORMA,
-                observacao: "Todo pagamento passa primeiro pela conta centralizada da NzoAgro (conta virtual por enquanto)"
-            }
+            observacao: "⚠️ Esta referência já contém TODOS os valores (produto + frete + taxas). Você só precisa inserir o código!"
         });
 
     } catch (error) {
-        console.log("Erro ao calcular o preço:", error);
+        console.error("Erro ao gerar referência:", error);
         res.status(500).json({
-            erro: "Erro ao calcular o preço do carrinho",
+            erro: "Erro ao gerar referência de pagamento",
             detalhe: error.message
         });
     }
 });
 
-// ========================================
-// ROTA: CRIAR PAGAMENTO COM DIVISÃO AUTOMÁTICA
-// ========================================
-router.post("/criar-pagamento", async (req, res) => {
-    const { 
-        id_pedido, 
-        tipo_pagamento, 
-        telefone_pagador, 
-        id_comprador,
-        peso_total = 10,
-        usuario_premium = false
-    } = req.body;
+//simular pagamento
+router.post("/simular-pagamento", verificarToken, async (req, res) => {
+    const { referencia } = req.body;
+    const id_usuario = req.usuario.id_usuario;
 
-    if (!id_pedido || !tipo_pagamento || !telefone_pagador || !id_comprador) {
+    // Validações básicas
+    if (!referencia) {
         return res.status(400).json({ 
-            mensagem: "Campos obrigatórios: id_pedido, tipo_pagamento, telefone_pagador, id_comprador" 
-        });
-    }
-
-    if (!TIPOS_PAGAMENTO[tipo_pagamento] || !TIPOS_PAGAMENTO[tipo_pagamento].ativo) {
-        return res.status(400).json({ 
-            mensagem: "Tipo de pagamento inválido ou inativo",
-            tipos_disponiveis: Object.keys(TIPOS_PAGAMENTO).filter(key => TIPOS_PAGAMENTO[key].ativo)
+            erro: "Referência é obrigatória",
+            codigo: "REF_OBRIGATORIA"
         });
     }
 
     try {
-        // Buscar dados do pedido
-        const pedidoQuery = `
-            SELECT 
-                SUM(item.quantidade * prod.preco) AS total,
-                ped.id_usuario as id_vendedor,
-                u_vendedor.nome as nome_vendedor,
-                u_vendedor.tipo_usuario as tipo_vendedor,
-                u_comprador.nome as nome_comprador,
-                u_comprador.tipo_usuario as tipo_comprador,
-                ped.endereco_entrega
-            FROM itens_pedido item 
-            JOIN produtos prod ON item.id_produto = prod.id_produto 
-            JOIN pedidos ped ON item.id_pedido = ped.id_pedido
-            JOIN usuarios u_vendedor ON ped.id_usuario = u_vendedor.id_usuario
-            JOIN usuarios u_comprador ON ? = u_comprador.id_usuario
-            WHERE item.id_pedido = ?
-            GROUP BY ped.id_usuario, u_vendedor.nome, u_vendedor.tipo_usuario, 
-                     u_comprador.nome, u_comprador.tipo_usuario, ped.endereco_entrega
-        `;
+        console.log(`🧪 SIMULAÇÃO - Usuário: ${id_usuario}, Ref: ${referencia}`);
 
-        const [resultado] = await conexao.promise().query(pedidoQuery, [id_comprador, id_pedido]);
-        
-        if (resultado.length === 0) {
-            return res.status(400).json({ mensagem: "Pedido não encontrado ou sem itens válidos." });
+        // Buscar referência do usuário logado
+        const [refEncontrada] = await conexao.promise().query(`
+            SELECT * FROM referencias_pagamento 
+            WHERE referencia = ? AND id_usuario = ? AND status = 'ativa'
+        `, [referencia, id_usuario]);
+
+        if (refEncontrada.length === 0) {
+            return res.status(404).json({ 
+                erro: "Referência não encontrada, inválida ou já processada",
+                codigo: "REF_NAO_ENCONTRADA",
+                dica: "Verifique se a referência está correta e ainda está ativa"
+            });
         }
 
-        const { 
-            total, id_vendedor, nome_vendedor, tipo_vendedor,
-            nome_comprador, tipo_comprador, endereco_entrega 
-        } = resultado[0];
+        const dadosRef = refEncontrada[0];
 
-        // CALCULAR DIVISÃO AUTOMÁTICA DOS VALORES
-        const calculoDivisao = await calcularDivisaoValores(
-            parseFloat(total),
-            tipo_pagamento,
-            peso_total,
-            usuario_premium
+        // Verificar validade (30 minutos)
+        const agora = new Date();
+        const criadaEm = new Date(dadosRef.criada_em);
+        const diffMinutos = (agora - criadaEm) / (1000 * 60);
+        
+        if (diffMinutos > 30) {
+            // Expirar automaticamente
+            await conexao.promise().query(`
+                UPDATE referencias_pagamento 
+                SET status = 'expirada' 
+                WHERE referencia = ?
+            `, [referencia]);
+
+            return res.status(400).json({ 
+                erro: "Referência expirada (máximo 30 minutos)",
+                codigo: "REF_EXPIRADA",
+                tempo_restante: 0,
+                dica: "Gere uma nova referência para continuar"
+            });
+        }
+
+        // Calcular divisão dos valores
+        const divisao = await calcularDivisaoValores(
+            dadosRef.valor_total,
+            dadosRef.tipo_pagamento,
+            100, // peso exemplo
+            false
         );
 
-        // Gerar IDs únicos
-        const transacao_id = `NZOAGRO_${Date.now()}_${uuidv4().substring(0, 8).toUpperCase()}`;
-        const referencia_pagamento = `REF_${Date.now()}`;
+        // Criar/buscar conta virtual do usuário
+        const contaVirtual = await criarOuBuscarContaVirtual(id_usuario, 'Agricultor');
 
-        // Inserir pagamento com divisão detalhada
-        const sql = `
-            INSERT INTO pagamentos 
-            (id_pedido, tipo_pagamento, valor_bruto, valor_taxa, valor_frete_base, 
-             valor_comissao_frete, valor_comissao, valor_liquido, status_pagamento, 
-             transacao_id, referencia_pagamento, telefone_pagador, id_comprador, 
-             id_vendedor, data_pagamento, peso_total, usuario_premium) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
-        `;
+        // Simular recebimento do pagamento
+        await registrarMovimento(
+            contaVirtual.id,
+            'credito',
+            divisao.valor_liquido_vendedor,
+            `💰 Pagamento simulado - Ref: ${referencia}`
+        );
 
-        const [insertResult] = await conexao.promise().query(sql, [
-            id_pedido, tipo_pagamento, calculoDivisao.valor_bruto, 
-            calculoDivisao.taxa_provedor, calculoDivisao.valor_frete_base,
-            calculoDivisao.comissao_frete, calculoDivisao.comissao_plataforma, 
-            calculoDivisao.valor_liquido_vendedor, STATUS_PAGAMENTO.PROCESSANDO, 
-            transacao_id, referencia_pagamento, telefone_pagador, 
-            id_comprador, id_vendedor, peso_total, usuario_premium
-        ]);
+        // Marcar referência como paga
+        await conexao.promise().query(`
+            UPDATE referencias_pagamento 
+            SET status = 'paga', 
+                data_pagamento = NOW(),
+                valor_pago = ?,
+                transacao_provedor = ?,
+                paga_em = NOW()
+            WHERE referencia = ?
+        `, [dadosRef.valor_total, `SIM_${Date.now()}`, referencia]);
 
-        // SIMULAÇÃO: Pagamento processado automaticamente
-        setTimeout(async () => {
-            try {
-                const pagamentoAprovado = Math.random() > 0.05; // 95% de aprovação
-                
-                if (pagamentoAprovado) {
-                    // Pagamento aprovado → RETIDO na conta da plataforma
-                    await conexao.promise().query(
-                        `UPDATE pagamentos 
-                         SET status_pagamento = ?, data_confirmacao = NOW() 
-                         WHERE id = ?`,
-                        [STATUS_PAGAMENTO.RETIDO, insertResult.insertId]
-                    );
-                    
-                    console.log(`✅ Pagamento ${transacao_id} aprovado e RETIDO na conta da plataforma NzoAgro`);
-                    console.log(`💰 Divisão: Vendedor=${calculoDivisao.valor_liquido_vendedor} AKZ, Frete=${calculoDivisao.valor_frete_base} AKZ, Comissão=${calculoDivisao.comissao_plataforma} AKZ`);
-                } else {
-                    await conexao.promise().query(
-                        `UPDATE pagamentos 
-                         SET status_pagamento = ?, motivo_cancelamento = ? 
-                         WHERE id = ?`,
-                        [STATUS_PAGAMENTO.CANCELADO, 'Falha na validação do provedor', insertResult.insertId]
-                    );
-                    console.log(`❌ Pagamento ${transacao_id} CANCELADO`);
-                }
-            } catch (error) {
-                console.error("Erro na simulação:", error);
-            }
-        }, 2000);
+        // Processar divisão do dinheiro (se você tem essa função)
+        try {
+            await processarDivisaoPagamento(referencia, dadosRef.valor_total);
+        } catch (error) {
+            console.log("⚠️ Função processarDivisaoPagamento não encontrada:", error.message);
+        }
 
-        return res.status(201).json({
-            mensagem: "💰 Pagamento criado com sucesso! Divisão automática ativada.",
-            transacao: {
-                id: transacao_id,
-                referencia: referencia_pagamento,
-                status: STATUS_PAGAMENTO.PROCESSANDO,
-                data_criacao: new Date().toISOString()
+        console.log(`✅ SIMULAÇÃO CONCLUÍDA - Ref: ${referencia}, Valor: ${dadosRef.valor_total}`);
+
+        res.json({
+            sucesso: true,
+            MODO: "🧪 SIMULAÇÃO",
+            timestamp: new Date().toISOString(),
+            pagamento: {
+                referencia: referencia,
+                valor_original: dadosRef.valor_total,
+                valor_pago: dadosRef.valor_total,
+                valor_recebido: divisao.valor_liquido_vendedor,
+                taxa_aplicada: divisao.taxa_total,
+                conta_virtual: {
+                    id: contaVirtual.id,
+                    saldo_anterior: contaVirtual.saldo,
+                    saldo_atual: contaVirtual.saldo + divisao.valor_liquido_vendedor
+                },
+                divisao_valores: divisao,
+                status: 'pago',
+                processado_em: new Date().toISOString()
             },
-            participantes: {
-                comprador: `${nome_comprador} (${tipo_comprador})`,
-                vendedor: `${nome_vendedor} (${tipo_vendedor})`,
-                endereco_entrega: endereco_entrega
-            },
-            divisao_valores: {
-                valor_total_pago: calculoDivisao.valor_bruto,
-                distribuicao_automatica: {
-                    vendedor: {
-                        nome: nome_vendedor,
-                        valor: calculoDivisao.valor_liquido_vendedor,
-                        descricao: "Receberá após confirmação da entrega"
-                    },
-                    transportadora: {
-                        valor: calculoDivisao.valor_frete_base,
-                        descricao: `Frete base para ${peso_total}kg`
-                    },
-                    comissao_transporte: {
-                        valor: calculoDivisao.comissao_frete,
-                        descricao: "Comissão do transporte"
-                    },
-                    plataforma_nzoagro: {
-                        valor: calculoDivisao.comissao_plataforma,
-                        descricao: `Comissão (${calculoDivisao.detalhes_calculo.taxa_comissao_aplicada})`
-                    },
-                    provedor: {
-                        nome: TIPOS_PAGAMENTO[tipo_pagamento].nome,
-                        valor: calculoDivisao.taxa_provedor,
-                        descricao: `Taxa do provedor (${calculoDivisao.detalhes_calculo.taxa_provedor_aplicada})`
-                    }
-                }
-            },
-            conta_centralizada_nzoagro: {
-                ...CONFIGURACOES_PLATAFORMA.CONTA_PLATAFORMA,
-                status_atual: "💰 Aguardando confirmação do pagamento",
-                proximos_passos: [
-                    "1. Pagamento será confirmado pelo " + TIPOS_PAGAMENTO[tipo_pagamento].nome,
-                    "2. Valor fica RETIDO na conta centralizada NzoAgro (virtual)",
-                    "3. Após entrega confirmada, valores são distribuídos automaticamente",
-                    "4. Notificações enviadas para todas as partes"
-                ]
-            },
-            instrucoes_pagamento: {
-                provedor: TIPOS_PAGAMENTO[tipo_pagamento].nome,
-                referencia: referencia_pagamento,
-                codigo_ussd: TIPOS_PAGAMENTO[tipo_pagamento].codigo_ussd || null,
-                valor_total: calculoDivisao.valor_bruto,
-                instrucoes: `
-📱 INSTRUÇÕES DE PAGAMENTO:
-${TIPOS_PAGAMENTO[tipo_pagamento].codigo_ussd ? `1. Disque ${TIPOS_PAGAMENTO[tipo_pagamento].codigo_ussd} no seu telemóvel` : '1. Abra o app ' + TIPOS_PAGAMENTO[tipo_pagamento].nome}
-2. Use a referência: ${referencia_pagamento}
-3. Confirme o pagamento de ${calculoDivisao.valor_bruto} AKZ
-4. Aguarde confirmação automática (±2 segundos)
-
-💡 O seu dinheiro ficará seguro na conta NzoAgro até a entrega ser confirmada!
-                `
-            }
+            mensagem: "💰 Pagamento simulado com sucesso! Valores creditados automaticamente.",
+            proximos_passos: [
+                "Consulte seu saldo atualizado",
+                "Verifique o extrato de movimentos",
+                "A referência agora está marcada como 'paga'"
+            ]
         });
+
     } catch (error) {
-        return res.status(500).json({ 
-            mensagem: "Erro ao processar pagamento", 
-            erro: error.message 
+        console.error("❌ Erro ao simular pagamento:", error);
+        res.status(500).json({
+            erro: "Erro interno ao simular pagamento",
+            codigo: "ERRO_SIMULACAO",
+            detalhe: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno do servidor',
+            timestamp: new Date().toISOString()
         });
     }
 });
 
+
+
+
+// A Unitel/Africell/Multicaixa chama sua API quando há pagamento
+router.post("/webhook/pagamento-confirmado", async (req, res) => {
+    const { 
+        referencia, 
+        valor_pago, 
+        status, 
+        transacao_id_provedor,
+        timestamp 
+    } = req.body;
+    
+    // Validar se é mesmo da provedora (assinatura/token)
+    if (!validarAssinaturaWebhook(req)) {
+        return res.status(401).json({ erro: "Não autorizado" });
+    }
+    
+    try {
+        // Buscar referência
+        const [ref] = await conexao.promise().query(`
+            SELECT * FROM referencias_pagamento 
+            WHERE referencia = ? AND status = 'ativa'
+        `, [referencia]);
+        
+        if (ref.length === 0) {
+            return res.status(404).json({ erro: "Referência não encontrada" });
+        }
+        
+        // MARCAR como PAGA e EXPIRAR
+        await conexao.promise().query(`
+            UPDATE referencias_pagamento 
+            SET status = 'paga', 
+                valor_pago = ?, 
+                transacao_provedor = ?,
+                paga_em = NOW()
+            WHERE referencia = ?
+        `, [valor_pago, transacao_id_provedor, referencia]);
+        
+        // Processar divisão do dinheiro
+        await processarDivisaoPagamento(referencia, valor_pago);
+        
+        res.json({ sucesso: true, processado: true });
+        
+    } catch (error) {
+        res.status(500).json({ erro: "Erro no processamento" });
+    }
+});
 // ========================================
 // ROTA: CONFIRMAR ENTREGA E DISTRIBUIR VALORES
 // ========================================
@@ -531,15 +722,21 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
     }
 
     try {
+        // 1. BUSCAR PAGAMENTO E ENTREGA
         const [pagamento] = await conexao.promise().query(`
-            SELECT p.*, 
-                   u_comprador.nome as nome_comprador,
-                   u_vendedor.nome as nome_vendedor, 
-                   u_vendedor.tipo_usuario as tipo_vendedor
-            FROM pagamentos p
-            JOIN usuarios u_comprador ON p.id_comprador = u_comprador.id_usuario
-            JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
-            WHERE p.transacao_id = ?
+                    SELECT p.*, 
+            u_comprador.nome as nome_comprador,
+            u_vendedor.nome as nome_vendedor, 
+            u_vendedor.tipo_usuario as tipo_vendedor,
+            e.id_entregas,
+            e.estado_entrega,
+            e.transportadora,
+            e.transportadora_id as entrega_transportadora_id
+        FROM pagamentos p
+        JOIN usuarios u_comprador ON p.id_comprador = u_comprador.id_usuario
+        JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
+        LEFT JOIN entregas e ON p.id_pedido = e.pedidos_id
+        LIMIT 1
         `, [transacao_id]);
 
         if (pagamento.length === 0) {
@@ -548,6 +745,7 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
 
         const pag = pagamento[0];
 
+        // 2. VALIDAR STATUS DO PAGAMENTO
         if (pag.status_pagamento !== STATUS_PAGAMENTO.RETIDO) {
             return res.status(400).json({ 
                 mensagem: "❌ Pagamento deve estar RETIDO para ser liberado",
@@ -556,7 +754,24 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
             });
         }
 
-        // Verificar permissões
+        // 3. VALIDAR ENTREGA (se existir)
+        if (pag.id_entregas) {
+            if (pag.estado_entrega === 'entregue') {
+                return res.status(400).json({
+                    mensagem: "❌ Entrega já foi confirmada anteriormente",
+                    estado_atual: pag.estado_entrega
+                });
+            }
+            
+            if (!['aguardando retirada', 'em rota'].includes(pag.estado_entrega)) {
+                return res.status(400).json({
+                    mensagem: "❌ Entrega deve estar 'em rota' ou 'aguardando retirada' para ser confirmada",
+                    estado_atual: pag.estado_entrega
+                });
+            }
+        }
+
+        // 4. VERIFICAR PERMISSÕES
         const [usuario_confirmador] = await conexao.promise().query(
             "SELECT nome, tipo_usuario FROM usuarios WHERE id_usuario = ?",
             [confirmado_por]
@@ -571,35 +786,39 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
         const podeConfirmar = (
             confirmado_por == pag.id_comprador || 
             tipo_confirmador === 'Administrador' ||
-            tipo_confirmador === 'Moderador'
+            tipo_confirmador === 'Moderador' ||
+            (id_transportadora && confirmado_por == id_transportadora)
         );
 
         if (!podeConfirmar) {
             return res.status(403).json({ 
                 mensagem: "❌ Permissão negada",
-                explicacao: "Apenas o comprador, administradores ou moderadores podem confirmar a entrega"
+                explicacao: "Apenas o comprador, transportadora, administradores ou moderadores podem confirmar a entrega"
             });
         }
 
-        // DISTRIBUIR OS VALORES AUTOMATICAMENTE DA CONTA NZOAGRO
+        // 5. USAR TRANSPORTADORA DA ENTREGA OU PARÂMETRO
+        const transportadora_final = id_transportadora || pag.entrega_transportadora_id;
+
+        // 6. DISTRIBUIR OS VALORES AUTOMATICAMENTE
         const distribuicoesRealizadas = [];
         
-        // 1. Transferir para o vendedor
+        // Vendedor
         distribuicoesRealizadas.push({
             destinatario: pag.nome_vendedor,
             tipo: 'Vendedor',
-            valor: pag.valor_liquido,
+            valor: pag.valor_liquido, // CORRIGIDO: era valor_liquido_vendedor
             descricao: 'Pagamento pela venda (transferido da conta NzoAgro)',
             metodo_transferencia: 'Transferência via Unitel Money/Africell Money'
         });
 
-        // 2. Transferir para transportadora (se especificada)
-        if (id_transportadora && pag.valor_frete_base > 0) {
-            const [transportadora] = await conexao.promise().query(
-                "SELECT nome FROM usuarios WHERE id_usuario = ? AND tipo_usuario = 'Transportadora'",
-                [id_transportadora]
-            );
-            
+        // Transportadora (se especificada)
+        if (transportadora_final && pag.valor_frete_base > 0) {
+    const [transportadora] = await conexao.promise().query(
+        "SELECT nome FROM transportadoras WHERE id = ?", 
+        [transportadora_final]
+    );
+
             if (transportadora.length > 0) {
                 distribuicoesRealizadas.push({
                     destinatario: transportadora[0].nome,
@@ -611,7 +830,7 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
             }
         }
 
-// 3. Comissão fica com a NzoAgro (já está na conta)
+        // Comissões da plataforma
         distribuicoesRealizadas.push({
             destinatario: 'NzoAgro Platform Ltd',
             tipo: 'Plataforma',
@@ -620,7 +839,6 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
             metodo_transferencia: 'Retenção na conta centralizada'
         });
 
-        // 4. Comissão do frete fica com a NzoAgro
         if (pag.valor_comissao_frete > 0) {
             distribuicoesRealizadas.push({
                 destinatario: 'NzoAgro Platform Ltd',
@@ -631,87 +849,99 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
             });
         }
 
-        // Atualizar status para LIBERADO
-        await conexao.promise().query(`
-            UPDATE pagamentos 
-            SET status_pagamento = ?, data_liberacao = NOW(), 
-                confirmado_por = ?, metodo_confirmacao = ?,
-                observacoes_liberacao = ?
-            WHERE transacao_id = ?
-        `, [
-            STATUS_PAGAMENTO.LIBERADO, 
-            confirmado_por, 
-            metodo_confirmacao, 
-            `Entrega confirmada. Valores distribuídos automaticamente via conta centralizada NzoAgro.`,
-            transacao_id
-        ]);
+        // 7. INICIAR TRANSAÇÃO
+        await conexao.promise().beginTransaction();
 
-        // REGISTRAR HISTÓRICO DE DISTRIBUIÇÃO
-        const historicoPromises = distribuicoesRealizadas.map(async (dist) => {
-            return conexao.promise().query(`
-                INSERT INTO historico_distribuicoes 
-                (transacao_id, destinatario, tipo_destinatario, valor, descricao, 
-                 metodo_transferencia, data_distribuicao, status_distribuicao)
-                VALUES (?, ?, ?, ?, ?, ?, NOW(), 'concluida')
+        try {
+            // Atualizar pagamento
+            await conexao.promise().query(`
+                UPDATE pagamentos 
+                SET status_pagamento = ?, data_liberacao = NOW(), 
+                    confirmado_por = ?, metodo_confirmacao = ?,
+                    observacoes_liberacao = ?
+                WHERE transacao_id = ?
             `, [
-                transacao_id, dist.destinatario, dist.tipo, 
-                dist.valor, dist.descricao, dist.metodo_transferencia
+                STATUS_PAGAMENTO.LIBERADO, 
+                confirmado_por, 
+                metodo_confirmacao, 
+                `Entrega confirmada. Valores distribuídos automaticamente via conta centralizada NzoAgro.`,
+                transacao_id
             ]);
-        });
 
-        await Promise.all(historicoPromises);
+            // Atualizar entrega (se existir)
+            if (pag.id_entregas) {
+                await conexao.promise().query(`
+                    UPDATE entregas 
+                    SET estado_entrega = 'entregue', 
+                        data_entrega = NOW()
+                    WHERE id_entregas = ?
+                `, [pag.id_entregas]);
+            }
 
-        console.log(`🎉 DISTRIBUIÇÃO AUTOMÁTICA CONCLUÍDA para transação ${transacao_id}:`);
-        distribuicoesRealizadas.forEach(dist => {
-            console.log(`   • ${dist.destinatario} (${dist.tipo}): ${dist.valor} AKZ`);
-        });
+            // Registrar histórico de distribuições
+            const historicoPromises = distribuicoesRealizadas.map(async (dist) => {
+                return conexao.promise().query(`
+                    INSERT INTO historico_distribuicoes 
+                    (transacao_id, destinatario, tipo_destinatario, valor, descricao, 
+                     metodo_transferencia, data_distribuicao, status_distribuicao)
+                    VALUES (?, ?, ?, ?, ?, ?, NOW(), 'concluida')
+                `, [
+                    transacao_id, dist.destinatario, dist.tipo, 
+                    dist.valor, dist.descricao, dist.metodo_transferencia
+                ]);
+            });
 
-        return res.json({
-            mensagem: "🎉 Entrega confirmada! Divisão automática de valores concluída com sucesso!",
-            confirmacao: {
-                transacao_id,
-                confirmado_por: `${nome_confirmador} (${tipo_confirmador})`,
-                data_liberacao: new Date().toISOString(),
-                metodo: metodo_confirmacao,
-                total_distribuido: distribuicoesRealizadas.reduce((sum, dist) => sum + dist.valor, 0)
-            },
-            participantes_beneficiados: {
-                comprador: `${pag.nome_comprador} - Produto entregue com sucesso`,
-                vendedor: `${pag.nome_vendedor} - Recebeu ${pag.valor_liquido_vendedor} AKZ`,
-                transportadora: id_transportadora ? `Recebeu ${pag.valor_frete_base} AKZ` : 'Não especificada',
-                plataforma: `NzoAgro reteve ${pag.valor_comissao + pag.valor_comissao_frete} AKZ em comissões`
-            },
-            distribuicoes_realizadas: distribuicoesRealizadas,
-            resumo_financeiro: {
-                valor_original_pago: pag.valor_bruto,
-                valor_distribuido_vendedor: pag.valor_liquido_vendedor,
-                valor_distribuido_frete: pag.valor_frete_base,
-                comissao_plataforma_total: pag.valor_comissao + pag.valor_comissao_frete,
-                taxa_provedor_deduzida: pag.valor_taxa,
-                conta_origem: CONFIGURACOES_PLATAFORMA.CONTA_PLATAFORMA.titular,
-                peso_processado: `${pag.peso_total}kg`,
-                tipo_usuario: pag.usuario_premium ? 'Premium' : 'Padrão'
-            },
-            conta_centralizada_pos_distribuicao: {
-                ...CONFIGURACOES_PLATAFORMA.CONTA_PLATAFORMA,
-                status_atual: "✅ Distribuição automática concluída",
-                saldo_comissoes: pag.valor_comissao + pag.valor_comissao_frete,
-                proxima_acao: "Aguardando próximas transações"
-            },
-            notificacoes_enviadas: [
-                `📱 ${pag.nome_comprador}: Entrega confirmada com sucesso`,
-                `💰 ${pag.nome_vendedor}: Pagamento de ${pag.valor_liquido_vendedor} AKZ transferido`,
-                `🚚 Transportadora: Frete de ${pag.valor_frete_base} AKZ transferido`,
-                `📊 NzoAgro: Comissões de ${pag.valor_comissao + pag.valor_comissao_frete} AKZ registradas`
-            ],
-            proximos_passos: [
-                "✅ Transação finalizada com sucesso",
-                "📊 Dados registrados no histórico de distribuições",
-                "💼 Comissões contabilizadas para a plataforma",
-                "🔄 Sistema pronto para próximas transações",
-                "📈 Métricas atualizadas no painel administrativo"
-            ]
-        });
+            await Promise.all(historicoPromises);
+
+            // Confirmar transação
+            await conexao.promise().commit();
+
+            console.log(`🎉 DISTRIBUIÇÃO AUTOMÁTICA CONCLUÍDA para transação ${transacao_id}:`);
+            distribuicoesRealizadas.forEach(dist => {
+                console.log(`   • ${dist.destinatario} (${dist.tipo}): ${dist.valor} AKZ`);
+            });
+
+            return res.json({
+                mensagem: "🎉 Entrega confirmada! Divisão automática de valores concluída com sucesso!",
+                confirmacao: {
+                    transacao_id,
+                    confirmado_por: `${nome_confirmador} (${tipo_confirmador})`,
+                    data_liberacao: new Date().toISOString(),
+                    metodo: metodo_confirmacao,
+                    total_distribuido: distribuicoesRealizadas.reduce((sum, dist) => sum + dist.valor, 0),
+                    entrega_atualizada: pag.id_entregas ? "✅ Estado alterado para 'entregue'" : "ℹ️ Sem registro de entrega"
+                },
+                participantes_beneficiados: {
+                    comprador: `${pag.nome_comprador} - Produto entregue com sucesso`,
+                    vendedor: `${pag.nome_vendedor} - Recebeu ${pag.valor_liquido} AKZ`,
+                    transportadora: transportadora_final ? `Recebeu ${pag.valor_frete_base} AKZ` : 'Não especificada',
+                    plataforma: `NzoAgro reteve ${pag.valor_comissao + (pag.valor_comissao_frete || 0)} AKZ em comissões`
+                },
+                distribuicoes_realizadas: distribuicoesRealizadas,
+                entrega_info: pag.id_entregas ? {
+                    id_entrega: pag.id_entregas,
+                    estado_anterior: pag.estado_entrega,
+                    estado_atual: 'entregue',
+                    transportadora: pag.transportadora,
+                    data_confirmacao: new Date().toISOString()
+                } : null,
+                resumo_financeiro: {
+                    valor_original_pago: pag.valor_bruto,
+                    valor_distribuido_vendedor: pag.valor_liquido,
+                    valor_distribuido_frete: pag.valor_frete_base || 0,
+                    comissao_plataforma_total: pag.valor_comissao + (pag.valor_comissao_frete || 0),
+                    taxa_provedor_deduzida: pag.valor_taxa,
+                    peso_processado: `${pag.peso_total || 0}kg`,
+                    tipo_usuario: pag.usuario_premium ? 'Premium' : 'Padrão'
+                }
+            });
+
+        } catch (error) {
+            // Reverter transação em caso de erro
+            await conexao.promise().rollback();
+            throw error;
+        }
+
     } catch (error) {
         console.error("❌ Erro ao confirmar entrega e distribuir valores:", error);
         return res.status(500).json({ 
@@ -722,6 +952,471 @@ router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
         });
     }
 });
+
+
+
+router.post("/solicitar-reembolso/:transacao_id", autenticarToken, async (req, res) => {
+    const { transacao_id } = req.params;
+    const id_usuario_solicitante = req.usuario.id_usuario; // JWT token
+    const { motivo_reembolso, tipo_reembolso = 'total' } = req.body;
+
+    if (!motivo_reembolso) {
+        return res.status(400).json({ 
+            mensagem: "Campo 'motivo_reembolso' é obrigatório",
+            exemplos: [
+                "Produto não entregue no prazo",
+                "Produto com defeito/avariado",
+                "Entrega no endereço errado",
+                "Desistência da compra"
+            ]
+        });
+    }
+
+    try {
+        // 1. 🔍 BUSCAR INFORMAÇÕES COMPLETAS DA TRANSAÇÃO
+        const [pagamento] = await conexao.promise().query(`
+            SELECT p.*, 
+                u_comprador.nome as nome_comprador,
+                u_comprador.telefone as telefone_comprador,
+                u_vendedor.nome as nome_vendedor,
+                e.id_entregas,
+                e.estado_entrega,
+                e.data_criacao as data_criacao_entrega,
+                e.prazo_entrega_dias,
+                DATEDIFF(NOW(), e.data_criacao) as dias_desde_pedido,
+                DATEDIFF(NOW(), p.data_pagamento) as dias_desde_pagamento
+            FROM pagamentos p
+            JOIN usuarios u_comprador ON p.id_comprador = u_comprador.id_usuario
+            JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
+            LEFT JOIN entregas e ON p.id_pedido = e.pedidos_id
+            WHERE p.transacao_id = ? AND p.id_comprador = ?
+        `, [transacao_id, id_usuario_solicitante]);
+
+        if (pagamento.length === 0) {
+            return res.status(404).json({ 
+                mensagem: "❌ Transação não encontrada ou você não tem permissão",
+                explicacao: "Apenas o comprador pode solicitar reembolso de suas próprias compras"
+            });
+        }
+
+        const pag = pagamento[0];
+
+        // 2. 🚫 VALIDAÇÕES CRÍTICAS DE SEGURANÇA
+        
+        // 2.1 Verificar se o dinheiro ainda está na conta virtual
+        if (pag.status_pagamento !== 'retido') {
+            const mensagensStatus = {
+                'pendente': 'Pagamento ainda não foi processado',
+                'processando': 'Pagamento em processamento, aguarde',
+                'pago': 'Pagamento processado mas ainda não retido na conta virtual',
+                'liberado': '❌ IMPOSSÍVEL REEMBOLSAR: Dinheiro já foi distribuído para vendedor/transportadora',
+                'cancelado': 'Pagamento já foi cancelado',
+                'reembolsado': 'Transação já foi reembolsada anteriormente'
+            };
+
+            return res.status(400).json({
+                mensagem: `❌ Reembolso não permitido - Status: ${pag.status_pagamento}`,
+                explicacao: mensagensStatus[pag.status_pagamento],
+                status_atual: pag.status_pagamento,
+                quando_pode_reembolsar: "Apenas quando o status for 'retido' (dinheiro na conta virtual NzoAgro)",
+                protecao_sistema: pag.status_pagamento === 'liberado' ? 
+                    "🛡️ Sistema impede reembolso após distribuição para evitar fraudes" : 
+                    "⏳ Aguarde o processamento do pagamento"
+            });
+        }
+
+        // 2.2 Verificar se já existe solicitação de reembolso pendente
+        const [reembolsoExistente] = await conexao.promise().query(`
+            SELECT * FROM solicitacoes_reembolso 
+            WHERE transacao_id = ? AND status_solicitacao IN ('pendente', 'em_analise')
+        `, [transacao_id]);
+
+        if (reembolsoExistente.length > 0) {
+            return res.status(400).json({
+                mensagem: "❌ Já existe uma solicitação de reembolso em andamento",
+                solicitacao_existente: {
+                    id: reembolsoExistente[0].id,
+                    status: reembolsoExistente[0].status_solicitacao,
+                    data_solicitacao: reembolsoExistente[0].data_solicitacao,
+                    motivo: reembolsoExistente[0].motivo_reembolso
+                }
+            });
+        }
+
+        // 3. ⏰ VERIFICAR PRAZO DE ENTREGA (LÓGICA DE NEGÓCIO)
+        const prazo_padrao = 5; // dias
+        const prazo_entrega = pag.prazo_entrega_dias || prazo_padrao;
+        const dias_passados = pag.dias_desde_pagamento || 0;
+        const prazo_vencido = dias_passados > prazo_entrega;
+
+        // 4. 💰 CALCULAR VALORES DO REEMBOLSO
+        let valor_reembolso = 0;
+        let taxa_reembolso = 0;
+        let valor_liquido_reembolso = 0;
+
+        if (tipo_reembolso === 'total') {
+            valor_reembolso = pag.valor_bruto;
+            // Taxa de reembolso baseada no motivo e prazo
+            if (prazo_vencido) {
+                taxa_reembolso = 0; // Sem taxa se prazo venceu
+            } else {
+                taxa_reembolso = pag.valor_bruto * 0.05; // 5% de taxa para desistência
+            }
+            valor_liquido_reembolso = valor_reembolso - taxa_reembolso;
+        }
+
+        // 5. 📝 REGISTRAR SOLICITAÇÃO DE REEMBOLSO
+        await conexao.promise().beginTransaction();
+
+        try {
+            // Inserir solicitação
+            const [resultado] = await conexao.promise().query(`
+                INSERT INTO solicitacoes_reembolso 
+                (transacao_id, id_comprador, motivo_reembolso, tipo_reembolso,
+                 valor_solicitado, taxa_reembolso, valor_liquido_reembolso,
+                 prazo_vencido, dias_atraso, status_solicitacao, data_solicitacao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', NOW())
+            `, [
+                transacao_id, id_usuario_solicitante, motivo_reembolso, tipo_reembolso,
+                valor_reembolso, taxa_reembolso, valor_liquido_reembolso,
+                prazo_vencido, Math.max(0, dias_passados - prazo_entrega), 
+            ]);
+
+            const id_solicitacao = resultado.insertId;
+
+            // Atualizar status do pagamento para "em_reembolso"
+            await conexao.promise().query(`
+                UPDATE pagamentos 
+                SET status_pagamento = 'processando',
+                    motivo_reembolso = ?,
+                    data_atualizacao = NOW()
+                WHERE transacao_id = ?
+            `, [motivo_reembolso, transacao_id]);
+
+            // Registrar log de auditoria
+            await conexao.promise().query(`
+                INSERT INTO logs_reembolso 
+                (id_solicitacao, transacao_id, acao, detalhes, usuario_id, ip_origem, data_acao)
+                VALUES (?, ?, 'solicitacao_criada', ?, ?, ?, NOW())
+            `, [
+                id_solicitacao, transacao_id, 
+                `Solicitação de reembolso criada. Motivo: ${motivo_reembolso}`,
+                id_usuario_solicitante, req.ip || req.connection.remoteAddress
+            ]);
+
+            await conexao.promise().commit();
+
+            // 6. 📨 NOTIFICAR PARTES INTERESSADAS (simulado)
+            console.log(`📧 NOTIFICAÇÕES DE REEMBOLSO:`);
+            console.log(`   → Comprador: ${pag.nome_comprador} - Solicitação registrada`);
+            console.log(`   → Vendedor: ${pag.nome_vendedor} - Cliente solicitou reembolso`);
+            console.log(`   → Admin: Nova solicitação de reembolso para análise`);
+
+            return res.json({
+                mensagem: "✅ Solicitação de reembolso registrada com sucesso!",
+                
+                solicitacao: {
+                    id: id_solicitacao,
+                    transacao_id,
+                    status: 'pendente',
+                    data_solicitacao: new Date().toISOString(),
+                    prazo_analise: "24-48 horas úteis"
+                },
+
+                valores: {
+                    valor_original: pag.valor_bruto,
+                    valor_solicitado: valor_reembolso,
+                    taxa_reembolso: taxa_reembolso,
+                    valor_liquido_reembolso: valor_liquido_reembolso,
+                    explicacao_taxa: prazo_vencido ? 
+                        "Sem taxa - prazo de entrega vencido" : 
+                        "Taxa de 5% para desistência antes do prazo"
+                },
+
+                motivo: {
+                    informado: motivo_reembolso,
+                    prazo_original: `${prazo_entrega} dias`,
+                    dias_passados: dias_passados,
+                    prazo_vencido: prazo_vencido,
+                    situacao: prazo_vencido ? 
+                        "⚠️ Prazo de entrega vencido - reembolso sem taxa" :
+                        "ℹ️ Dentro do prazo - taxa de cancelamento aplicável"
+                },
+
+                proximos_passos: [
+                    "📋 Sua solicitação será analisada pela equipe",
+                    "🔍 Verificaremos com o vendedor/transportadora",
+                    "💰 Processaremos o reembolso se aprovado",
+                    "📱 Você receberá notificações sobre o andamento"
+                ],
+
+                importante: {
+                    seguranca: "🛡️ Reembolso só é possível porque o dinheiro ainda estava na conta virtual",
+                    protecao: "Após confirmação de entrega, não há possibilidade de reembolso",
+                    contato: "Para urgências: suporte@nzoagro.com"
+                }
+            });
+
+        } catch (error) {
+            await conexao.promise().rollback();
+            throw error;
+        }
+
+    } catch (error) {
+        console.error("❌ Erro ao processar solicitação de reembolso:", error);
+        return res.status(500).json({
+            mensagem: "Erro ao processar solicitação de reembolso",
+            erro: error.message,
+            codigo_suporte: `REF_${transacao_id}_${Date.now()}`
+        });
+    }
+});
+
+// 📋 ROTA: Listar Solicitações de Reembolso do Usuário
+router.get("/meus-reembolsos", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+
+    try {
+        const [reembolsos] = await conexao.promise().query(`
+            SELECT 
+                sr.*,
+                p.valor_bruto,
+                p.status_pagamento,
+                u_vendedor.nome as nome_vendedor,
+                e.estado_entrega,
+                e.prazo_entrega_dias
+            FROM solicitacoes_reembolso sr
+            JOIN pagamentos p ON sr.transacao_id = p.transacao_id
+            JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
+            LEFT JOIN entregas e ON p.id_pedido = e.pedidos_id
+            WHERE sr.id_comprador = ?
+            ORDER BY sr.data_solicitacao DESC
+        `, [id_usuario]);
+
+        return res.json({
+            total_solicitacoes: reembolsos.length,
+            solicitacoes: reembolsos.map(r => ({
+                id: r.id,
+                transacao_id: r.transacao_id,
+                vendedor: r.nome_vendedor,
+                valor_solicitado: r.valor_solicitado,
+                valor_liquido: r.valor_liquido_reembolso,
+                motivo: r.motivo_reembolso,
+                status: r.status_solicitacao,
+                data_solicitacao: r.data_solicitacao,
+                prazo_vencido: r.prazo_vencido,
+                dias_atraso: r.dias_atraso || 0
+            }))
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            erro: "Falha ao buscar solicitações",
+            detalhes: error.message
+        });
+    }
+});
+
+// 👨‍💼 ROTA: Processar Reembolso (Admin/Moderador)
+router.post("/processar-reembolso/:id_solicitacao", autenticarToken, async (req, res) => {
+    const { id_solicitacao } = req.params;
+    const id_admin = req.usuario.id_usuario;
+    const { acao, observacoes_admin } = req.body; // acao: 'aprovar' | 'rejeitar'
+
+    // Verificar se é admin/moderador
+    const [admin] = await conexao.promise().query(
+        "SELECT tipo_usuario FROM usuarios WHERE id_usuario = ?", [id_admin]
+    );
+
+    if (admin.length === 0 || !['Administrador', 'Moderador'].includes(admin[0].tipo_usuario)) {
+        return res.status(403).json({
+            mensagem: "❌ Acesso negado",
+            explicacao: "Apenas administradores e moderadores podem processar reembolsos"
+        });
+    }
+
+    if (!['aprovar', 'rejeitar'].includes(acao)) {
+        return res.status(400).json({
+            mensagem: "Ação inválida",
+            acoes_validas: ['aprovar', 'rejeitar']
+        });
+    }
+
+    try {
+        // Buscar solicitação
+        const [solicitacao] = await conexao.promise().query(`
+            SELECT sr.*, p.* 
+            FROM solicitacoes_reembolso sr
+            JOIN pagamentos p ON sr.transacao_id = p.transacao_id
+            WHERE sr.id = ? AND sr.status_solicitacao = 'pendente'
+        `, [id_solicitacao]);
+
+        if (solicitacao.length === 0) {
+            return res.status(404).json({
+                mensagem: "Solicitação não encontrada ou já processada"
+            });
+        }
+
+        const sol = solicitacao[0];
+
+        await conexao.promise().beginTransaction();
+
+        try {
+            if (acao === 'aprovar') {
+                // Gerar ID único para o reembolso
+                const reembolso_id = `REF_${sol.transacao_id}_${Date.now()}`;
+
+                // Atualizar pagamento
+                await conexao.promise().query(`
+                    UPDATE pagamentos 
+                    SET status_pagamento = 'reembolsado',
+                        valor_reembolsado = ?,
+                        motivo_reembolso = ?,
+                        reembolso_id = ?,
+                        data_reembolso = NOW(),
+                        autorizado_por = ?
+                    WHERE transacao_id = ?
+                `, [
+                    sol.valor_liquido_reembolso, sol.motivo_reembolso, 
+                    reembolso_id, id_admin, sol.transacao_id
+                ]);
+
+                // Atualizar solicitação
+                await conexao.promise().query(`
+                    UPDATE solicitacoes_reembolso 
+                    SET status_solicitacao = 'aprovada',
+                        data_processamento = NOW(),
+                        processado_por = ?,
+                        observacoes_admin = ?,
+                        reembolso_id = ?
+                    WHERE id = ?
+                `, [id_admin, observacoes_admin, reembolso_id, id_solicitacao]);
+
+                var mensagem_resposta = "✅ Reembolso aprovado e processado com sucesso!";
+                var status_final = 'aprovada';
+
+            } else {
+                // Rejeitar - retornar pagamento ao status retido
+                await conexao.promise().query(`
+                    UPDATE pagamentos 
+                    SET status_pagamento = 'retido'
+                    WHERE transacao_id = ?
+                `, [sol.transacao_id]);
+
+                await conexao.promise().query(`
+                    UPDATE solicitacoes_reembolso 
+                    SET status_solicitacao = 'rejeitada',
+                        data_processamento = NOW(),
+                        processado_por = ?,
+                        observacoes_admin = ?
+                    WHERE id = ?
+                `, [id_admin, observacoes_admin, id_solicitacao]);
+
+                var mensagem_resposta = "❌ Solicitação de reembolso rejeitada";
+                var status_final = 'rejeitada';
+            }
+
+            // Log de auditoria
+            await conexao.promise().query(`
+                INSERT INTO logs_reembolso 
+                (id_solicitacao, transacao_id, acao, detalhes, usuario_id, ip_origem, data_acao)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+            `, [
+                id_solicitacao, sol.transacao_id, 
+                `reembolso_${acao}do`, 
+                `${acao === 'aprovar' ? 'Aprovado' : 'Rejeitado'} por admin. ${observacoes_admin || ''}`,
+                id_admin, req.ip
+            ]);
+
+            await conexao.promise().commit();
+
+            return res.json({
+                mensagem: mensagem_resposta,
+                solicitacao: {
+                    id: id_solicitacao,
+                    transacao_id: sol.transacao_id,
+                    status_final: status_final,
+                    valor_processado: acao === 'aprovar' ? sol.valor_liquido_reembolso : 0,
+                    processado_por: admin[0].tipo_usuario,
+                    data_processamento: new Date().toISOString()
+                }
+            });
+
+        } catch (error) {
+            await conexao.promise().rollback();
+            throw error;
+        }
+
+    } catch (error) {
+        console.error("❌ Erro ao processar reembolso:", error);
+        return res.status(500).json({
+            erro: "Falha ao processar reembolso",
+            detalhes: error.message
+        });
+    }
+});
+
+
+
+router.get("/dashboard-reembolsos", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+
+    // Verificar se é admin
+    const [admin] = await conexao.promise().query(
+        "SELECT tipo_usuario FROM usuarios WHERE id_usuario = ?", [id_usuario]
+    );
+
+    if (admin.length === 0 || !['Administrador', 'Moderador'].includes(admin[0].tipo_usuario)) {
+        return res.status(403).json({ mensagem: "❌ Acesso restrito a administradores" });
+    }
+
+    try {
+        // Estatísticas gerais
+        const [stats] = await conexao.promise().query(`
+            SELECT 
+                COUNT(*) as total_solicitacoes,
+                COUNT(CASE WHEN status_solicitacao = 'pendente' THEN 1 END) as pendentes,
+                COUNT(CASE WHEN status_solicitacao = 'aprovada' THEN 1 END) as aprovadas,
+                COUNT(CASE WHEN status_solicitacao = 'rejeitada' THEN 1 END) as rejeitadas,
+                SUM(CASE WHEN status_solicitacao = 'aprovada' THEN valor_liquido_reembolso ELSE 0 END) as total_reembolsado,
+                SUM(CASE WHEN status_solicitacao = 'pendente' THEN valor_liquido_reembolso ELSE 0 END) as valor_pendente
+            FROM solicitacoes_reembolso
+            WHERE data_solicitacao >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `);
+
+        // Solicitações pendentes
+        const [pendentes] = await conexao.promise().query(`
+            SELECT 
+                sr.*,
+                u_comprador.nome as nome_comprador,
+                u_vendedor.nome as nome_vendedor,
+                p.valor_bruto,
+                DATEDIFF(NOW(), sr.data_solicitacao) as dias_pendente
+            FROM solicitacoes_reembolso sr
+            JOIN pagamentos p ON sr.transacao_id = p.transacao_id
+            JOIN usuarios u_comprador ON sr.id_comprador = u_comprador.id_usuario
+            JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
+            WHERE sr.status_solicitacao = 'pendente'
+            ORDER BY sr.data_solicitacao ASC
+        `);
+
+        return res.json({
+            estatisticas: stats[0],
+            solicitacoes_pendentes: pendentes,
+            alertas: {
+                critico: pendentes.filter(p => p.dias_pendente > 3).length,
+                atencao: pendentes.filter(p => p.dias_pendente > 1 && p.dias_pendente <= 3).length
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            erro: "Falha ao carregar dashboard",
+            detalhes: error.message
+        });
+    }
+});
+
 
 // ========================================
 // ROTA: RELATÓRIO FINANCEIRO DETALHADO DA PLATAFORMA
@@ -873,4 +1568,14 @@ router.get("/relatorio-financeiro", async (req, res) => {
     }
 });
 
-module.exports = router;
+module.exports = {
+    router,
+    middlewareValidacaoOperadoras,
+    gerarReferenciaPagamento,
+    listarMetodosPagamentoCompativeis,
+    calcularDivisaoValores,
+    criarOuBuscarContaVirtual,
+    registrarMovimento,
+    calcularDivisaoComValidacao  
+
+};

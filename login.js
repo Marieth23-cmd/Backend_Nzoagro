@@ -14,6 +14,77 @@ router.use(express.json());
 router.use(cookieParser());
 
 // Rota de Login
+// router.post("/", async (req, res) => {
+//     console.log("Recebendo login:", req.body);
+//     const { email, senha } = req.body;
+
+//     if (!email || !senha) {
+//         return res.status(400).json({ mensagem: "E-mail e senha são obrigatórios" });
+//     }
+
+//     try {
+//         const [usuarios] = await conexao.promise().query(
+//             `SELECT id_usuario, nome, senha, status, tipo_usuario , foto ,
+//              descricao FROM usuarios WHERE email = ?`
+//             ,
+//             [email]
+//         );
+
+//         if (usuarios.length === 0) {
+//             return res.status(401).json({ mensagem: "Usuário não encontrado" });
+//         }
+
+//         const usuario = usuarios[0];
+
+//         if (usuario.status === "desativado") {
+//             return res.status(403).json({ mensagem: "Conta desativada. Contate o suporte." });
+//         }
+       
+//             console.log("Senha digitada:",typeof senha);
+//             console.log("Senha do banco:", usuario.senha);               
+
+//         const senhaCorreta = await bcrypt.compare(senha, usuario.senha);
+//         if (!senhaCorreta) {
+//             return res.status(401).json({ mensagem: "Senha incorreta!" });
+//         }
+
+//         const token = jwt.sign(
+//             { id_usuario: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario },
+//             SECRET_KEY,
+//             { expiresIn: "1h" }
+//         );
+
+//         res.cookie("token", token, {
+//             httpOnly: true,
+//             secure: true,             
+//             sameSite: "None",         
+//             maxAge: 3600000,
+//             path: "/"
+//         });
+
+//         res.status(200).json({
+//             mensagem: "Sessão iniciada",
+//             token,
+//             usuario: { id: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario }
+//         });
+
+//     } catch (error) {
+//         console.log("Erro ao iniciar sessão:", error);
+
+//         // Verifica se o erro veio do banco de dados e exibe a mensagem correta
+//         if (error.sqlMessage) {
+//             return res.status(500).json({ mensagem: "Erro no banco de dados", erro: error.sqlMessage });
+//         }
+
+//         res.status(500).json({ mensagem: "Erro ao iniciar sessão", erro: error.message });
+//     }
+// });
+
+
+
+
+
+
 router.post("/", async (req, res) => {
     console.log("Recebendo login:", req.body);
     const { email, senha } = req.body;
@@ -23,49 +94,77 @@ router.post("/", async (req, res) => {
     }
 
     try {
+        // Primeiro, tenta encontrar na tabela usuarios
         const [usuarios] = await conexao.promise().query(
-            `SELECT id_usuario, nome, senha, status, tipo_usuario , foto ,
-             descricao FROM usuarios WHERE email = ?`
-            ,
+            `SELECT id_usuario as id, nome, senha, status, tipo_usuario, foto, 
+             descricao FROM usuarios WHERE email = ?`,
             [email]
         );
 
-        if (usuarios.length === 0) {
+        // Se não encontrou na tabela usuarios, tenta na tabela transportadoras
+        const [transportadoras] = await conexao.promise().query(
+            `SELECT id_transportadora as id, nome, senha_hash as senha, status, 
+             NULL as foto, NULL as descricao FROM transportadoras WHERE email = ?`,
+            [email]
+        );
+
+        // Verifica qual tabela retornou resultado e ajusta os dados
+        let conta = null;
+        let tipoUsuario = null;
+        
+        if (usuarios.length > 0) {
+            conta = usuarios[0];
+            tipoUsuario = conta.tipo_usuario; // Vem da tabela usuarios
+        } else if (transportadoras.length > 0) {
+            conta = transportadoras[0];
+            tipoUsuario = 'transportadora'; // Definido manualmente
+        } else {
             return res.status(401).json({ mensagem: "Usuário não encontrado" });
         }
 
-        const usuario = usuarios[0];
-
-        if (usuario.status === "desativado") {
+        // Verifica se a conta está ativa
+        if (conta.status === "desativado" || conta.status === "inativo") {
             return res.status(403).json({ mensagem: "Conta desativada. Contate o suporte." });
         }
-       
-            console.log("Senha digitada:",typeof senha);
-            console.log("Senha do banco:", usuario.senha);               
 
-        const senhaCorreta = await bcrypt.compare(senha, usuario.senha);
+        console.log("Senha digitada:", typeof senha);
+        console.log("Senha do banco:", conta.senha);
+
+        // Verifica a senha
+        const senhaCorreta = await bcrypt.compare(senha, conta.senha);
         if (!senhaCorreta) {
             return res.status(401).json({ mensagem: "Senha incorreta!" });
         }
 
+        // Cria o token JWT
         const token = jwt.sign(
-            { id_usuario: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario },
+            { 
+                id_usuario: conta.id, 
+                nome: conta.nome, 
+                tipo_usuario: tipoUsuario
+            },
             SECRET_KEY,
             { expiresIn: "1h" }
         );
 
+        // Define o cookie
         res.cookie("token", token, {
             httpOnly: true,
-            secure: true,             
-            sameSite: "None",         
+            secure: true,
+            sameSite: "None",
             maxAge: 3600000,
             path: "/"
         });
 
+        // Retorna resposta de sucesso
         res.status(200).json({
             mensagem: "Sessão iniciada",
             token,
-            usuario: { id: usuario.id_usuario, nome: usuario.nome, tipo_usuario: usuario.tipo_usuario }
+            usuario: { 
+                id: conta.id, 
+                nome: conta.nome, 
+                tipo_usuario: tipoUsuario
+            }
         });
 
     } catch (error) {
@@ -79,6 +178,17 @@ router.post("/", async (req, res) => {
         res.status(500).json({ mensagem: "Erro ao iniciar sessão", erro: error.message });
     }
 });
+
+
+
+
+
+
+
+
+
+
+
 
 // Rota de Logout
 router.post("/logout", (req, res) => {

@@ -6,7 +6,6 @@ const notificar = require("./utils/notificar");
 
 
 router.use(express.json());
-
 router.post("/adicionar", autenticarToken, async (req, res) => {
     const { id_produto, quantidade, unidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
@@ -18,9 +17,9 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
             return res.status(400).json({ mensagem: "A quantidade deve ser maior que zero." });
         }
 
-        // Buscar informações do produto 
+        // Buscar informações do produto (incluindo preço)
         const [produto] = await conexao.promise().query(
-            "SELECT peso_kg FROM produtos WHERE id_produtos = ?",
+            "SELECT peso_kg, preco FROM produtos WHERE id_produtos = ?",
             [id_produto]
         );
 
@@ -29,6 +28,7 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
         }
 
         const peso_produto = produto[0].peso_kg;
+        const preco_produto = produto[0].preco; // ← ADICIONAR ESTA LINHA
 
         // Verificar se o carrinho já existe para o usuário
         let [carrinho] = await conexao.promise().query(
@@ -57,14 +57,14 @@ router.post("/adicionar", autenticarToken, async (req, res) => {
         if (produtoExiste.length > 0) {
             // Se o produto já estiver no carrinho, atualizar a quantidade
             await conexao.promise().query(
-                "UPDATE carrinho_itens SET quantidade = quantidade + ?, unidade = ?, peso = ? WHERE id_carrinho = ? AND id_produto = ?",
-                [quantidade, unidade, peso_produto, id_carrinho, id_produto]
+                "UPDATE carrinho_itens SET quantidade = quantidade + ?, unidade = ?, peso = ?, preco = ? WHERE id_carrinho = ? AND id_produto = ?",
+                [quantidade, unidade, peso_produto, preco_produto, id_carrinho, id_produto]
             );
         } else {
-            // Se não, adicionar o produto ao carrinho com peso
+            // Se não, adicionar o produto ao carrinho com peso E PREÇO
             await conexao.promise().query(
-                "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade, unidade, peso) VALUES (?, ?, ?, ?, ?)",
-                [id_carrinho, id_produto, quantidade, unidade, peso_produto]
+                "INSERT INTO carrinho_itens (id_carrinho, id_produto, quantidade, unidade, peso, preco) VALUES (?, ?, ?, ?, ?, ?)",
+                [id_carrinho, id_produto, quantidade, unidade, peso_produto, preco_produto]
             );
         }
         
@@ -229,79 +229,8 @@ router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao atualizar quantidade." });
     }
 });
-// // Endpoint modificado para calcular-preco
-// router.post("/calcular-preco", autenticarToken, async (req, res) => {
-//   const { produtoId, quantidadeCliente, pesoTotal } = req.body;
 
-//   try {
-//     const [resultado] = await conexao.promise().query(
-//       "SELECT * FROM produtos WHERE id_produtos = ?",
-//       [produtoId]
-//     );
 
-//     if (resultado.length === 0) {
-//       return res.status(404).json({ erro: "Produto não encontrado." });
-//     }
-
-//     const produto = resultado[0];
-//     const quantidadeDisponivel = produto.quantidade;
-//     const precoUnitario = produto.preco;
-    
-//     // Se a quantidade solicitada for maior que a disponível, retornamos erro
-//     if (quantidadeCliente > quantidadeDisponivel) {
-//       return res.status(400).json({ erro: "Quantidade solicitada maior que a disponível." });
-//     }
-
-//     const precoCliente = precoUnitario * quantidadeCliente;
-    
-//     // Usamos o pesoTotal fornecido ou calculamos baseado no produto atual
-//     const pesoProduto = produto.peso_kg || 0;
-//     const pesoTotalFinal = pesoTotal || (pesoProduto * quantidadeCliente);
-
-//     const calcularFrete = (peso) => {
-//       if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
-//       if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
-//       if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
-//       if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
-//       if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
-//       if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
-//       if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
-//       if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
-//       return { base: 0, comissao: 0 };
-//     };
-
-//     const frete = calcularFrete(pesoTotalFinal);
-    
-//     // Se estamos calculando apenas para um produto, o total é o preço do produto
-//     // Se estamos calculando com peso total, devolvemos apenas os valores de frete e comissão
-//     const totalFinal = pesoTotal ? precoCliente : (precoCliente + frete.base + frete.comissao);
-
-//     // Log para depuração
-//     console.log("API calculando com:", {
-//       produtoId,
-//       quantidadeCliente,
-//       pesoTotal: pesoTotalFinal,
-//       frete: frete.base,
-//       comissao: frete.comissao
-//     });
-
-//     res.json({
-//       precoUnitario,
-//       precoCliente,
-//       pesoTotal: pesoTotalFinal,
-//       frete: frete.base,
-//       comissao: frete.comissao,
-//       totalFinal
-//     });
-
-//   } catch (error) {
-//     console.log("Erro ao calcular o preço:", error);
-//     res.status(500).json({
-//       erro: "Erro ao calcular o preço do produto",
-//       detalhe: error.message
-//     });
-//   }
-// });
 
 // router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 //     const id_usuario = req.usuario.id_usuario;
