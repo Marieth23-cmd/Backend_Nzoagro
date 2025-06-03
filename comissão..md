@@ -7,7 +7,7 @@ Faixa de Peso (Kg) | Preço do Frete Base (Kz) | Comissão da Plataforma (Kz) | 
 301 – 500 Kg | 50.000 | 5.000 | 55.000
 501 – 1.000 Kg | 80.000 | 8.000 | 88.000
 1.001 – 2.000 Kg | 120.000 | 12.000 | 132.000
-
+REF_1748960773123
 
 -- =====================================================
 -- ESTRUTURA DA TABELA PAGAMENTOS ATUALIZADA

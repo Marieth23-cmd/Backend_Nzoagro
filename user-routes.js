@@ -39,19 +39,14 @@ router.get("/", async (req, res) => {
         user.tipo_usuario AS Tipo_de_Usuário,
         user.email AS Email,
         user.data_exclusao AS Data_de_Exclusão,
-        COALESCE(contacto.contacto, 'Sem contacto') AS Contacto,
+        COALESCE(user.contacto, 'Sem contacto') AS Contacto,
             endereco.rua AS Rua,
             endereco.provincia AS Provincia,
             endereco.bairro AS Bairro,
             endereco.municipio AS Municipio,
             endereco.pais AS Pais
-
-      
     FROM usuarios user
-    LEFT JOIN contacto ON user.id_usuario = contacto.id_usuario
     LEFT JOIN endereco ON user.id_usuario= endereco.id_usuario  WHERE user.status="ativo" `
-    
-
         ); 
 
         const usuario = removerEnderecoSeComprador(usuarios[0]);
@@ -83,16 +78,13 @@ router.get("/me",autenticarToken, async (req, res) => {
         user.email AS email,
         user.data_exclusao AS data_exclusao,
         user.data_criacao AS data_criacao,
-        COALESCE(contacto.contacto, 'Sem contacto') AS contacto,
+        COALESCE(user.contacto, 'Sem contacto') AS contacto,
         endereco.rua AS Rua,
             endereco.provincia AS provincia,
             endereco.bairro AS bairro,
             endereco.municipio AS municipio,
             endereco.pais AS pais
-       
-
     FROM usuarios user
-    LEFT JOIN contacto ON user.id_usuario = contacto.id_usuario
     LEFT JOIN endereco ON user.id_usuario= endereco.id_usuario WHERE user.id_usuario = ? AND user.status="ativo"  `
     
   ;
@@ -171,16 +163,12 @@ router.post("/",  async (req, res) => {
 
         // Inserir no banco de dados
         const [resultado] = await conexao.promise().query(
-            "INSERT INTO usuarios (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao) VALUES (?, ?, ?, ?,?,? , NOW())",
-            [nome, email, senhaCriptografada, tipo_usuario ,foto ,descricao , data_criacao]
+            "INSERT INTO usuarios (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao,contacto) VALUES (?, ?, ?, ?,?,? , NOW(),?)",
+            [nome, email, senhaCriptografada, tipo_usuario ,foto ,descricao , data_criacao, contacto]
         );
 
         const idUsuario = resultado.insertId;
 
-        await conexao.promise().query(
-            "INSERT INTO contacto (id_usuario, contacto) VALUES (?, ?)", 
-            [idUsuario, contacto]
-        );
 
         if (tipo_usuario === "Fornecedor" || tipo_usuario === "Agricultor") {
             await conexao.promise().query(
@@ -257,18 +245,10 @@ router.put("/perfil",autenticarToken,  async (req, res) => {
 
         
         const [result] = await conexao.promise().query(
-            "UPDATE usuarios SET nome=?, email=?, senha=?, descricao=?, foto=?, tipo_usuario=? WHERE id_usuario=?",
-            [nome, email, senhaAtualizada, descricao, foto, tipo_usuario, userId]
+            "UPDATE usuarios SET nome=?, email=?, senha=?, descricao=?, foto=?, tipo_usuario=?,contacto=? WHERE id_usuario=?",
+            [nome, email, senhaAtualizada, descricao, foto, tipo_usuario,contacto, userId]
         );
         
-
-        
-        if (contacto) {
-            await conexao.promise().query(
-                "UPDATE contacto SET contacto=? WHERE id_usuario=?" , [contacto,userId]
-
-            );
-        }
 
         
         if ((userTipo.toLowerCase() === "Agricultor" || userTipo.toLowerCase() === "Fornecedor") && (rua || provincia || bairro || municipio || pais)) {

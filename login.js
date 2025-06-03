@@ -87,9 +87,9 @@ router.use(cookieParser());
 
 router.post("/", async (req, res) => {
     console.log("Recebendo login:", req.body);
-    const { email, senha } = req.body;
+    const { email, senha , contacto } = req.body;
 
-    if (!email || !senha) {
+    if ((!email && contacto) || !senha) {
         return res.status(400).json({ mensagem: "E-mail e senha são obrigatórios" });
     }
 
@@ -97,15 +97,15 @@ router.post("/", async (req, res) => {
         // Primeiro, tenta encontrar na tabela usuarios
         const [usuarios] = await conexao.promise().query(
             `SELECT id_usuario as id, nome, senha, status, tipo_usuario, foto, 
-             descricao FROM usuarios WHERE email = ?`,
-            [email]
+             descricao FROM usuarios WHERE email = ? OR contacto =?`,
+            [email , contacto]
         );
 
         // Se não encontrou na tabela usuarios, tenta na tabela transportadoras
         const [transportadoras] = await conexao.promise().query(
             `SELECT id, nome, senha_hash as senha, status, 
-             NULL as foto, NULL as descricao FROM transportadoras WHERE email = ?`,
-            [email]
+             NULL as foto, NULL as descricao FROM transportadoras WHERE email = ? OR contacto=?`,
+            [email ,contacto]
         );
 
         // Verifica qual tabela retornou resultado e ajusta os dados
@@ -114,7 +114,7 @@ router.post("/", async (req, res) => {
         
         if (usuarios.length > 0) {
             conta = usuarios[0];
-            tipoUsuario = conta.tipo_usuario; // Vem da tabela usuarios
+            tipoUsuario = conta.tipo_usuario; 
         } else if (transportadoras.length > 0) {
             conta = transportadoras[0];
             tipoUsuario = 'transportadora'; // Definido manualmente
@@ -181,15 +181,6 @@ router.post("/", async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
 // Rota de Logout
 router.post("/logout", (req, res) => {
     res.clearCookie("token");
@@ -197,6 +188,9 @@ router.post("/logout", (req, res) => {
 });
 
 
+
+
+//verificar autenticação
 router.get("/auth/verificar", autenticarToken, async (req, res) => {
     try {
         console.log("=== VERIFICANDO AUTENTICAÇÃO ===");
