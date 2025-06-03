@@ -103,7 +103,7 @@ router.post("/", async (req, res) => {
 
         // Se não encontrou na tabela usuarios, tenta na tabela transportadoras
         const [transportadoras] = await conexao.promise().query(
-            `SELECT id_transportadora as id, nome, senha_hash as senha, status, 
+            `SELECT id, nome, senha_hash as senha, status, 
              NULL as foto, NULL as descricao FROM transportadoras WHERE email = ?`,
             [email]
         );
