@@ -1568,14 +1568,10 @@ router.get("/relatorio-financeiro",autenticarToken ,autorizarUsuario(["Administr
     }
 });
 
-module.exports = {
-    router,
-    middlewareValidacaoOperadoras,
-    gerarReferenciaPagamento,
-    listarMetodosPagamentoCompativeis,
-    calcularDivisaoValores,
-    criarOuBuscarContaVirtual,
-    registrarMovimento,
-    calcularDivisaoComValidacao  
+module.exports = router;
 
-};
+module.exports.middlewareValidacaoOperadoras = middlewareValidacaoOperadoras ;
+module.exports.gerarReferenciaPagamento = gerarReferenciaPagamento;
+module.exports.listarMetodosPagamentoCompativeis = listarMetodosPagamentoCompativeis;
+module.exports.calcularDivisaoComValidacao = calcularDivisaoComValidacao;
+module.exports.calcularDivisaoValores = calcularDivisaoValores;
