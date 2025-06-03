@@ -533,7 +533,7 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
 });
 
 //simular pagamento
-router.post("/simular-pagamento", verificarToken, async (req, res) => {
+router.post("/simular-pagamento", autenticarToken, async (req, res) => {
     const { referencia } = req.body;
     const id_usuario = req.usuario.id_usuario;
 
@@ -713,7 +713,7 @@ router.post("/webhook/pagamento-confirmado", async (req, res) => {
 // ========================================
 // ROTA: CONFIRMAR ENTREGA E DISTRIBUIR VALORES
 // ========================================
-router.post("/confirmar-entrega/:transacao_id", async (req, res) => {
+router.post("/confirmar-entrega/:transacao_id", autenticarToken, async (req, res) => {
     const { transacao_id } = req.params;
     const { confirmado_por, metodo_confirmacao = 'manual', id_transportadora } = req.body;
 
