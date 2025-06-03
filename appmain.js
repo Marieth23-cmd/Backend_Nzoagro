@@ -92,6 +92,7 @@ const relatorio = require("./relatorio-routes");
 const login = require("./login");
 const carrinho = require("./carrinho");
 const avaliacoes = require("./avaliacoes");
+const transportadoras =require("./transportadoras")
 
 
 
@@ -110,6 +111,7 @@ app.use("/pagamentos", pagamentos);
 app.use("/login", login);
 app.use("/carrinho", carrinho);
 app.use("/avaliacoes", avaliacoes);
+app.use ("transportadoras",transportadoras);
 
 
 
