@@ -3,7 +3,7 @@ const router = express.Router();
 const conexao = require("./database");
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
-const { autenticarToken } = require("./mildwaretoken");
+const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
 router.use(express.json());
 
 // ========================================
@@ -1421,7 +1421,7 @@ router.get("/dashboard-reembolsos", autenticarToken, async (req, res) => {
 // ========================================
 // ROTA: RELATÓRIO FINANCEIRO DETALHADO DA PLATAFORMA
 // ========================================
-router.get("/relatorio-financeiro", async (req, res) => {
+router.get("/relatorio-financeiro",autenticarToken ,autorizarUsuario([Administrador]), async (req, res) => {
     const { data_inicio, data_fim, tipo_relatorio = 'geral' } = req.query;
     
     try {
