@@ -1421,7 +1421,7 @@ router.get("/dashboard-reembolsos", autenticarToken, async (req, res) => {
 // ========================================
 // ROTA: RELATÓRIO FINANCEIRO DETALHADO DA PLATAFORMA
 // ========================================
-router.get("/relatorio-financeiro",autenticarToken ,autorizarUsuario([Administrador]), async (req, res) => {
+router.get("/relatorio-financeiro",autenticarToken ,autorizarUsuario(["Administrador"]), async (req, res) => {
     const { data_inicio, data_fim, tipo_relatorio = 'geral' } = req.query;
     
     try {
