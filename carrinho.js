@@ -490,112 +490,194 @@ router.post("/iniciar-checkout", autenticarToken, async (req, res) => {
     }
 });
 
-// Rota para processar pagamento e finalizar compra
+
+
+// ============================================
+// ROTA 2: FINALIZAR COMPRA (APÓS PAGAMENTO)
+// ============================================
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
-    const { pagamento_confirmado } = req.body; // Receba confirmação de pagamento
+    const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
+    const io = req.app.get("socketio");
     
     try {
         // Verifica se pagamento foi confirmado
         if (!pagamento_confirmado) {
             return res.status(400).json({ 
-                mensagem: "Pagamento não confirmado. Os itens permanecerão no seu carrinho."
+                message: "Pagamento não confirmado. O pedido permanece pendente."
+            });
+        }
+
+        if (!id_pedido) {
+            return res.status(400).json({ message: "ID do pedido é obrigatório" });
+        }
+        
+        // Verificar se o pedido existe e pertence ao usuário
+        const [pedido] = await conexao.promise().query(
+            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'pendente'",
+            [id_pedido, id_usuario]
+        );
+        
+        if (pedido.length === 0) {
+            return res.status(404).json({ 
+                message: "Pedido não encontrado ou já foi processado" 
             });
         }
         
-        // Pega o carrinho do usuário
-        const [carrinho] = await conexao.promise().query(
-            "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
-            [id_usuario]
-        );
-        
-        if (carrinho.length === 0) {
-            return res.status(400).json({ mensagem: "Carrinho vazio." });
-        }
-        
-        const id_carrinho = carrinho[0].id_carrinho;
-        
-        // Pega os itens do carrinho
-        const [itens] = await conexao.promise().query(
-            `SELECT ci.id_produto, ci.quantidade AS quantidade_carrinho, e.quantidade AS estoque_atual,
-                    p.nome, p.preco
-            FROM carrinho_itens ci
-            JOIN produtos p ON ci.id_produto = p.id_produtos
+        // Pegar itens do pedido
+        const [itensPedido] = await conexao.promise().query(`
+            SELECT ip.*, p.nome, e.quantidade as estoque_atual
+            FROM itens_pedido ip
+            JOIN produtos p ON ip.id_produto = p.id_produtos
             JOIN estoque e ON e.produto_id = p.id_produtos
-            WHERE ci.id_carrinho = ?`,
-            [id_carrinho]
-        );
+            WHERE ip.pedidos_id = ?
+        `, [id_pedido]);
         
-        if (itens.length === 0) {
-            return res.status(400).json({ mensagem: "Carrinho vazio." });
-        }
-        
-        // Verifica novamente se todos os produtos têm estoque suficiente
-        for (const item of itens) {
-            if (item.quantidade_carrinho > item.estoque_atual) {
+        // Verificar estoque novamente antes de finalizar
+        for (const item of itensPedido) {
+            if (item.quantidade_comprada > item.estoque_atual) {
                 return res.status(400).json({
-                    mensagem: `Produto ${item.nome} não tem mais estoque suficiente.`
+                    message: `Produto ${item.nome} não tem mais estoque suficiente. Disponível: ${item.estoque_atual}`
                 });
             }
         }
         
-        // Calcula o total do pedido
-        const totalPedido = itens.reduce(
-            (sum, item) => sum + (item.preco * item.quantidade_carrinho), 
-            0
+        // ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
+        await conexao.promise().query(
+            "UPDATE pedidos SET estado = 'processado', data_pagamento = NOW() WHERE id_pedido = ?",
+            [id_pedido]
         );
-        
-        // Criar registro do pedido se você já tiver esta tabela
-        let id_pedido = null;
-        if (pedidosEnabled) { // Substitua por sua verificação se tem a tabela de pedidos
-            const [resultPedido] = await conexao.promise().query(
-                `INSERT INTO pedidos (id_usuario, valor_total, estado, data_pedido) 
-                VALUES (?, ?, 'pago', NOW())`,
-                [id_usuario, totalPedido]
-            );
+
+        // ATUALIZAR ESTOQUE DOS PRODUTOS
+        for (const item of itensPedido) {
+            const novoEstoque = item.estoque_atual - item.quantidade_comprada;
             
-            id_pedido = resultPedido.insertId;
-            
-            // Insere os itens do pedido na tabela de itens do pedido
-            for (const item of itens) {
-                await conexao.promise().query(
-                    `INSERT INTO itens_pedido (pedidos_id, id_produto, quantidade_comprada, preco) 
-                    VALUES (?, ?, ?, ?)`,
-                    [id_pedido, item.id_produto, item.quantidade_carrinho, item.preco]
-                );
-            }
-        }
-        
-        // Atualiza o estoque dos produtos
-        for (const item of itens) {
-            const novoEstoque = item.estoque_atual - item.quantidade_carrinho;
-            
-            // Atualiza a quantidade e status na tabela estoque
-            await conexao.promise().query(
+            await conexao.promise().query(  
                 "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
                 [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
             );
         }
         
-        // SOMENTE AGORA limpa o carrinho após confirmação de pagamento
-        await conexao.promise().query(
-            "DELETE FROM carrinho_itens WHERE id_carrinho = ?",
-            [id_carrinho]
+        // AGORA SIM - LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
+        await conexao.promise().query(`
+            DELETE ci FROM carrinho_itens ci
+            JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
+            WHERE c.id_usuario = ?
+        `, [id_usuario]);
+        
+        //  NOTIFICAÇÕES APÓS PAGAMENTO CONFIRMADO (COMPRA REAL)
+        
+        // 1 NOTIFICAR VENDEDORES - PERSONALIZADO POR PRODUTO
+        const idsProdutos = itensPedido.map(item => item.id_produto);
+        
+        // Buscar vendedores com seus produtos específicos no pedido
+        const [produtosVendedores] = await conexao.promise().query(
+            `SELECT DISTINCT 
+                u.id_usuario as vendedor_id,
+                u.nome as vendedor_nome,
+                u.tipo_usuario,
+                p.id_produtos,
+                p.nome as produto_nome,
+                ip.quantidade_comprada,
+                ip.subtotal,
+                p.unidade_medida
+             FROM produtos p 
+             JOIN usuarios u ON p.id_usuario = u.id_usuario 
+             JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
+             WHERE p.id_produtos IN (${idsProdutos.map(() => '?').join(',')}) 
+             AND ip.pedidos_id = ?
+             ORDER BY u.id_usuario, p.nome`,
+            [...idsProdutos, id_pedido]
         );
-        
-        await notificar(req.usuario.id_usuario, `Compra finalizada com sucesso.`);
-        
+
+        // Agrupar produtos por vendedor
+        const vendedoresProdutos = {};
+        produtosVendedores.forEach(item => {
+            if (!vendedoresProdutos[item.vendedor_id]) {
+                vendedoresProdutos[item.vendedor_id] = {
+                    vendedor_nome: item.vendedor_nome,
+                    tipo_usuario: item.tipo_usuario,
+                    produtos: [],
+                    valor_total_vendedor: 0
+                };
+            }
+            
+            vendedoresProdutos[item.vendedor_id].produtos.push({
+                nome: item.produto_nome,
+                quantidade: item.quantidade_comprada,
+                subtotal: item.subtotal,
+                unidade: item.unidade_medida || 'kg'
+            });
+            
+            vendedoresProdutos[item.vendedor_id].valor_total_vendedor += parseFloat(item.subtotal);
+        });
+
+        // Enviar notificação personalizada para cada vendedor
+        Object.keys(vendedoresProdutos).forEach((vendedor_id) => {
+            const dadosVendedor = vendedoresProdutos[vendedor_id];
+            
+            // Criar mensagem personalizada com os produtos do vendedor
+            let mensagemProdutos = dadosVendedor.produtos.map(produto => 
+                `${produto.nome}: ${produto.quantidade}${produto.unidade}`
+            ).join(', ');
+            
+            const mensagemFinal = `🛒 Novo pedido confirmado! Pedido #${id_pedido} - ${mensagemProdutos}`;
+            
+            io.to(`usuario_${vendedor_id}`).emit("novo_pedido", {
+                message: mensagemFinal,
+                id_pedido,
+                estado: 'processado',
+                valor_vendedor: Math.round(dadosVendedor.valor_total_vendedor),
+                produtos_vendedor: dadosVendedor.produtos,
+                comprador: req.usuario.nome || 'Cliente',
+                data: new Date(),
+                tipo: 'pedido_confirmado'
+            });
+        });
+
+        // 2️⃣ NOTIFICAR ADMINISTRADORES (nova compra na plataforma)
+        const [admins] = await conexao.promise().query(`
+            SELECT id_usuario, nome FROM usuarios WHERE tipo_usuario = 'Administrador'
+        `);
+
+        admins.forEach((admin) => {
+            io.to(`usuario_${admin.id_usuario}`).emit("novo_pedido", {
+                message: `💰 Nova compra realizada na plataforma! Pedido #${id_pedido}`,
+                id_pedido,
+                estado: 'processado',
+                valor_total: pedido[0].valor_total,
+                comprador: req.usuario.nome || 'Cliente',
+                data: new Date(),
+                tipo: 'compra_confirmada'
+            });
+        });
+
+        // 3️⃣ NOTIFICAR COMPRADOR (compra finalizada)
+        io.to(`usuario_${id_usuario}`).emit("compra_finalizada", {
+            message: `✅ Compra finalizada com sucesso! Pedido #${id_pedido}`,
+            id_pedido,
+            estado: 'processado',
+            valor_total: pedido[0].valor_total,
+            data: new Date(),
+            tipo: 'compra_finalizada'
+        });
+
         res.json({ 
-            mensagem: "Compra finalizada com sucesso!",
-            id_pedido: id_pedido
+            message: "Compra finalizada com sucesso!",
+            id_pedido,
+            status: "processado",
+            carrinho_status: "limpo",
+            referencia_pagamento
         });
         
     } catch (error) {
-        console.log("Erro ao finalizar a compra:", error);
-        res.status(500).json({ erro: "Erro ao finalizar a compra." });
+        console.log("Erro ao finalizar compra:", error);
+        res.status(500).json({ 
+            message: "Erro ao finalizar compra",
+            error: error.message 
+        });
     }
 });
-
 
 
 

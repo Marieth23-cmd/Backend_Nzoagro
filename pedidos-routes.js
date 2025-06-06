@@ -84,23 +84,23 @@ router.get("/especifico", autenticarToken, async (req, res) => {
 });
 
 
-
 router.post("/criar", autenticarToken, async (req, res) => {
-    const id_usuario= req.usuario.id_usuario
-    const { estado, valor_total, rua, bairro, pais, municipio, referencia, provincia, numero, itens } = req.body;
-    const io=req.app.get("socketio")
+    const id_usuario = req.usuario.id_usuario;
+    const { rua, bairro, pais, municipio, referencia, provincia, numero } = req.body;
+    const io = req.app.get("socketio");
+    
     try {
-
+        // Validações básicas
         if (!id_usuario || id_usuario == 0) {
             return res.status(400).json({ message: "Usuário inválido" });
         }
-        
-        
-        if (!itens || itens.length === 0) {
-            return res.status(400).json({ message: "Não há produtos no pedido. Adicione itens antes de finalizar a compra." });
+
+        // Validar campos de endereço
+        if (!rua || !bairro || !pais || !municipio || !referencia || !provincia || !numero) {
+            return res.status(400).json({ message: "Deve preencher os campos de localização" });
         }
 
-        
+        // Validar número de telefone
         const contactoString = String(numero);
         if (contactoString.length === 0) {
             return res.status(400).json({ message: "É necessário preencher o campo número" });
@@ -109,89 +109,141 @@ router.post("/criar", autenticarToken, async (req, res) => {
             return res.status(400).json({ message: "O contacto deve ter 9 dígitos e começar com 9" });
         }
 
-        
-        if (!rua || !bairro || !pais || !municipio || !referencia || !provincia || !numero) {
-            return res.status(400).json({ message: "Deve preencher os campos de localização" });
+        // BUSCAR E CALCULAR DADOS DO CARRINHO
+        const [itensCarrinho] = await conexao.promise().query(`
+            SELECT 
+                ci.quantidade as quantidade_desejada,
+                ci.peso as peso_carrinho,
+                ci.preco as preco_carrinho,
+                ci.unidade as Unidade,
+                p.id_produtos,
+                p.nome,
+                e.quantidade as quantidade_cadastrada,
+                p.peso_kg as peso_cadastrado,
+                p.preco as preco_cadastrado
+            FROM carrinho_itens ci
+            JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
+            JOIN estoque e ON ci.id_produto = e.produto_id
+            JOIN produtos p ON ci.id_produto = p.id_produtos
+            WHERE c.id_usuario = ?
+        `, [id_usuario]);
+
+        if (itensCarrinho.length === 0) {
+            return res.status(400).json({ message: "Não há produtos no carrinho. Adicione itens antes de criar o pedido." });
         }
 
-        
+        // Verificar se há estoque suficiente
+        for (const item of itensCarrinho) {
+            if (item.quantidade_desejada > item.quantidade_cadastrada) {
+                return res.status(400).json({ 
+                    message: `Produto ${item.nome} não tem estoque suficiente. Disponível: ${item.quantidade_cadastrada}` 
+                });
+            }
+        }
+
+        // CALCULAR TOTAIS E PREÇOS
+        let subtotalProdutos = 0;
+        let pesoTotal = 0;
+
+        const itensCalculados = itensCarrinho.map(item => {
+            // Calcular proporção baseada na quantidade desejada vs cadastrada
+            const proporcao = item.quantidade_desejada / item.quantidade_cadastrada;
+            
+            // Calcular preço e peso proporcionais
+            const preco_final = item.preco_cadastrado * proporcao;
+            const peso_final = item.peso_cadastrado * proporcao;
+            
+            // Calcular subtotal do produto
+            const subtotal_produto = preco_final;
+            
+            // Adicionar aos totais
+            subtotalProdutos += subtotal_produto;
+            pesoTotal += peso_final;
+            
+            return {
+                id_produto: item.id_produtos,
+                nome: item.nome,
+                quantidade_comprada: item.quantidade_desejada,
+                preco: Math.round(preco_final * 100) / 100,
+                subtotal: Math.round(subtotal_produto * 100) / 100,
+                peso_final: peso_final
+            };
+        });
+
+        // Função para calcular frete baseado no peso total
+        const calcularFrete = (peso) => {
+            if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
+            if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
+            if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
+            if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
+            if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
+            if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
+            if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
+            if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
+            return { base: 0, comissao: 0 };
+        };
+
+        const frete = calcularFrete(pesoTotal);
+        const valor_total = Math.round(subtotalProdutos + frete.base + frete.comissao);
+
+        // CRIAR O PEDIDO (Estado: pendente até pagamento)
         const [pedidoresul] = await conexao.promise().query(`
-            INSERT INTO pedidos ( id_usuario ,estado, valor_total, data_pedido) VALUES (?, ?,?, NOW())
-        `, [ id_usuario ,estado, valor_total]);
+            INSERT INTO pedidos (id_usuario, estado, valor_total, data_pedido) 
+            VALUES (?, 'pendente', ?, NOW())
+        `, [id_usuario, valor_total]);
 
         const id_pedido = pedidoresul.insertId;
 
-
+        // INSERIR ENDEREÇO DO PEDIDO
         await conexao.promise().query(`
             INSERT INTO endereco_pedidos (id_pedido, rua, bairro, pais, municipio, referencia, provincia, numero) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `, [id_pedido, rua, bairro, pais, municipio, referencia, provincia, numero]);
 
-        
-        for (let item of itens) {
+        // INSERIR ITENS DO PEDIDO
+        for (let item of itensCalculados) {
             await conexao.promise().query(`
                 INSERT INTO itens_pedido (quantidade_comprada, preco, subtotal, pedidos_id, id_produto)
                 VALUES (?, ?, ?, ?, ?)
             `, [item.quantidade_comprada, item.preco, item.subtotal, id_pedido, item.id_produto]);
         }
 
-       // Notificar o responsável do produto (agricultor ou fornecedor)
-        // Aqui você pode buscar o id do fornecedor ou agricultor responsável pelo produto
-        // (ou seja, o id_produto está relacionado a um agricultor ou fornecedor)
-        const idsProdutos = itens.map(item => item.id_produto);
-            const [fornecedorOuAgricultor] = await conexao.promise().query(
-            `SELECT id_usuario FROM produtos WHERE id_produto IN (${idsProdutos.map(() => '?').join(',')})`,
-            idsProdutos
-            );
-
-        const destinatarios = fornecedorOuAgricultor.map(item => item.id_usuario);
-
-        destinatarios.forEach((destinatario) => {
-            io.to(`usuario_${destinatario}`).emit("novo_pedido", {
-                message: `Novo pedido recebido! Pedido ID: ${id_pedido}`,
-                id_pedido,
-                estado,
-                valor_total,
-                data: new Date()
-            });
-        });
-
-        // Notificar o usuário que criou o pedido
-        io.to(`usuario_${id_usuario}`).emit("novo_pedido", {
-            message: `Seu pedido foi criado com sucesso! Pedido ID: ${id_pedido}`,
+        // NOTIFICAÇÃO APENAS PARA O COMPRADOR (pedido criado, aguardando pagamento)
+        io.to(`usuario_${id_usuario}`).emit("pedido_criado", {
+            message: `Pedido criado! ID: ${id_pedido}. Prossiga para o pagamento.`,
             id_pedido,
-            estado,
+            estado: 'pendente',
             valor_total,
             data: new Date()
         });
 
-        // Notificar todos os administradores
-        const [admins] = await conexao.promise().query(`
-            SELECT id_usuario FROM usuarios WHERE tipo_usuario = 'Administrador'
-        `);
+        // NÃO notificar vendedores/admins ainda - só após pagamento confirmado
 
-        admins.forEach((admin) => {
-            io.to(`usuario_${admin.id_usuario}`).emit("novo_pedido", {
-                message: `Novo pedido criado na plataforma. Pedido ID: ${id_pedido}`,
-                id_pedido,
-                estado,
-                valor_total,
-                data: new Date()
-            });
-        });
-
-        
+        // RESPOSTA COM DADOS PARA PAGAMENTO
         res.status(201).json({
-            message: "Pedido feito com sucesso!",
-            id_pedido
+            message: "Pedido criado com sucesso! Prossiga para o pagamento.",
+            id_pedido,
+            status: "aguardando_pagamento",
+            dados_pagamento: {
+                valor_total,
+                subtotalProdutos: Math.round(subtotalProdutos),
+                frete: frete.base,
+                comissao: frete.comissao,
+                itens: itensCalculados.length,
+                peso_total: Math.round(pesoTotal * 100) / 100
+            },
+            // CARRINHO MANTIDO ATÉ PAGAMENTO SER CONFIRMADO
+            carrinho_status: "mantido_ate_pagamento"
         });
 
     } catch (error) {
-        console.log("Erro ao enviar pedido:", error);
-        res.status(500).json({ message: "Erro ao enviar pedido", error: error.message });
+        console.log("Erro ao criar pedido:", error);
+        res.status(500).json({ 
+            message: "Erro ao criar pedido", 
+            error: error.message 
+        });
     }
 });
-
 
 
 router.delete("/:id_pedido", autenticarToken, async (req, res) => {

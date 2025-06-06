@@ -46,7 +46,7 @@ router.post("/cadastrar", async (req, res) => {
 
         // Insere no banco
         const [resultado] = await conexao.promise().query(
-            "INSERT INTO transportadoras (nome, nif, telefone, email, senha_hash, provincia_base, status, data_cadastro) VALUES (?, ?, ?, ?, ?, ?, 'ativo', NOW())",
+            "INSERT INTO transportadoras (nome, nif, contacto, email, senha_hash, provincia_base, status, data_cadastro) VALUES (?, ?, ?, ?, ?, ?, 'ativo', NOW())",
             [nome, nif, telefone, email, senhaCriptografada, provincia_base || null]
         );
 
