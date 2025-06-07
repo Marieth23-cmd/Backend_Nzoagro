@@ -87,7 +87,7 @@ router.get("/especifico", autenticarToken, async (req, res) => {
 router.post("/criar", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     const { rua, bairro, pais, municipio, referencia, provincia, numero } = req.body;
-    const io = req.app.get("socketio");
+    const io = req.io
     
     try {
         // Validações básicas

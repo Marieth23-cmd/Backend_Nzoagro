@@ -180,14 +180,27 @@ router.post("/", async (req, res) => {
 });
 
 
-
-// Rota de Logout
 router.post("/logout", (req, res) => {
-    res.clearCookie("token");
-    res.status(200).json({ mensagem: "Sessão encerrada" });
+    try {
+        // Limpar o cookie com as mesmas opções que foram usadas para criá-lo
+        res.clearCookie("token", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production", // HTTPS em produção
+            sameSite: "strict"
+        });
+        
+        res.status(200).json({ 
+            mensagem: "Sessão encerrada com sucesso",
+            success: true 
+        });
+    } catch (error) {
+        console.log("Erro ao fazer logout:", error);
+        res.status(500).json({ 
+            mensagem: "Erro ao encerrar sessão",
+            success: false 
+        });
+    }
 });
-
-
 
 
 //verificar autenticação

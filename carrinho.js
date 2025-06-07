@@ -498,7 +498,7 @@ router.post("/iniciar-checkout", autenticarToken, async (req, res) => {
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
-    const io = req.app.get("socketio");
+    const io = req.io;
     
     try {
         // Verifica se pagamento foi confirmado
