@@ -316,5 +316,89 @@ router.delete("/:id_pedido", autenticarToken, async (req, res) => {
       res.status(500).json({ message: "Erro ao excluir pedido", error: error.message });
     }
   })
+
+
+// Rota para buscar dados específicos do pedido para pagamento
+router.get("/pagamento/:id_pedido", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+    const { id_pedido } = req.params;
+    
+    try {
+        // Buscar dados do pedido com endereço
+        const [pedidoData] = await conexao.promise().query(`
+            SELECT 
+                p.id_pedido,
+                p.valor_total,
+                p.estado,
+                p.data_pedido,
+                ep.rua,
+                ep.bairro,
+                ep.municipio,
+                ep.provincia,
+                ep.numero
+            FROM pedidos p
+            LEFT JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
+            WHERE p.id_pedido = ? AND p.id_usuario = ?
+        `, [id_pedido, id_usuario]);
+
+        if (pedidoData.length === 0) {
+            return res.status(404).json({ message: "Pedido não encontrado ou não pertence ao usuário" });
+        }
+
+        // Buscar itens do pedido
+        const [itens] = await conexao.promise().query(`
+            SELECT 
+                ip.quantidade_comprada,
+                ip.preco,
+                ip.subtotal,
+                p.nome as nome_produto,
+                p.peso_kg
+            FROM itens_pedido ip
+            JOIN produtos p ON ip.id_produto = p.id_produtos
+            WHERE ip.pedidos_id = ?
+        `, [id_pedido]);
+
+        // Calcular valores para o pagamento
+        const subtotalProdutos = itens.reduce((total, item) => total + parseFloat(item.subtotal), 0);
+        const pesoTotal = itens.reduce((total, item) => total + (parseFloat(item.peso_kg) * item.quantidade_comprada), 0);
+        
+        // Função para calcular frete (mesma lógica do backend)
+        const calcularFrete = (peso) => {
+            if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
+            if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
+            if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
+            if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
+            if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
+            if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
+            if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
+            if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
+            return { base: 0, comissao: 0 };
+        };
+
+        const frete = calcularFrete(pesoTotal);
+        const valorFrete = frete.base + frete.comissao;
+
+        res.status(200).json({
+            pedido: pedidoData[0],
+            itens: itens,
+            valores: {
+                subtotal: Math.round(subtotalProdutos),
+                frete: valorFrete,
+                total: pedidoData[0].valor_total,
+                peso_total: Math.round(pesoTotal * 100) / 100
+            }
+        });
+
+    } catch (error) {
+        console.log("Erro ao buscar dados do pedido:", error);
+        res.status(500).json({ 
+            message: "Erro ao buscar dados do pedido", 
+            error: error.message 
+        });
+    }
+});
+
+
+
   
 module.exports = router;

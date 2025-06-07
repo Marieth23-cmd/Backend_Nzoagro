@@ -7,6 +7,8 @@ const numeroAngola=/^9\d{8}$/
  const bcrypt= require("bcryptjs")
  const notificar = require("./utils/notificar");
  const jwt = require("jsonwebtoken");
+ const upload = require("./upload");
+ const cloudinaryUtils = require("./utils/cloudinary");
  const SECRET_KEY = process.env.SECRET_KEY || "chaveDeSegurancaPadrao";
 
  
@@ -116,97 +118,159 @@ router.get("/me",autenticarToken, async (req, res) => {
 });
 
 
+router.post(
+  "/",
+  upload.single("foto"), // Upload da foto do usuário
+  async (req, res) => {
+    const {
+      nome,
+      email,
+      senha,
+      descricao,
+      data_criacao,
+      tipo_usuario,
+      contacto,
+      rua,
+      provincia,
+      bairro,
+      municipio,
+      pais,
+    } = req.body;
 
-router.post("/",  async (req, res) => {
-    const { nome, email, senha, descricao, data_criacao,foto, 
-         tipo_usuario, contacto, rua, provincia, bairro, municipio, pais } = req.body;
-         
+    console.log("entrou na função");
+    console.log("Dados enviados", req.body);
 
-        console.log("entrou na função")
-        console.log("Dados enviados" , req.body)
     try {
-        if (!nome || !senha || !tipo_usuario || !contacto || !email) {
-            return res.status(401).json({
-                message: "Os campos Nome, Email, Senha, Contacto e Tipo de Usuário são obrigatórios"
-            });
-        }
-
-        if (!senhaValida.test(senha)) {
-            return res.status(400).json({ message: "A senha só pode ter no mínimo 6 e no máximo 12 caracteres" });
-        }
-
-        const contactoString = String(contacto);
-        if (!numeroAngola.test(contactoString)) {
-            return res.status(400).json({ message: "O contacto deve ter 9 dígitos e começar com 9" });
-        }
-
-            const tipoLower = (tipo_usuario || '').trim().toLowerCase();
-            if (
-                tipoLower !== "fornecedor" && 
-                tipoLower !== "agricultor" &&
-                (rua || provincia || bairro || municipio || pais)
-            ) {
-                return res.status(400).json({ message: "Apenas Fornecedores e Agricultores podem adicionar endereço padrão" });
-            }
-                    
-
-        const [usuariosExistentes] = await conexao.promise().query(
-            "SELECT id_usuario FROM usuarios WHERE email = ?",
-            [email]
-        );
-
-        if (usuariosExistentes.length > 0) {
-            return res.status(409).json({ message: "Este e-mail já está cadastrado. Tente outro." });
-        }
-
-        const salt = await bcrypt.genSalt(10); // Gera um salt para a senha
-        const senhaCriptografada = await bcrypt.hash(senha, salt); // Criptografa a senha
-
-        // Inserir no banco de dados
-        const [resultado] = await conexao.promise().query(
-            "INSERT INTO usuarios (nome, email, senha, tipo_usuario ,foto,descricao , data_criacao,contacto) VALUES (?, ?, ?, ?,?,? , NOW(),?)",
-            [nome, email, senhaCriptografada, tipo_usuario ,foto ,descricao , data_criacao, contacto]
-        );
-
-        const idUsuario = resultado.insertId;
-
-
-        if (tipo_usuario === "Fornecedor" || tipo_usuario === "Agricultor") {
-            await conexao.promise().query(
-                "INSERT INTO endereco (id_usuario, rua, bairro, provincia, pais, municipio) VALUES (?, ?, ?, ?, ?, ?)", 
-                [idUsuario, rua, bairro, provincia, pais, municipio]
-            );
-        }
-
-        const token = jwt.sign(
-            { id_usuario:idUsuario, nome:nome, tipo_usuario:tipo_usuario },
-            SECRET_KEY, 
-            { expiresIn: "1h" }
-        );
-
-        res.cookie("token", token, {
-            httpOnly: true,
-            secure: true,
-            sameSite: "None",
-            maxAge: 3600000,
-            path: "/"
+      if (!nome || !senha || !tipo_usuario || !contacto || !email) {
+        return res.status(401).json({
+          message:
+            "Os campos Nome, Email, Senha, Contacto e Tipo de Usuário são obrigatórios",
         });
+      }
 
-        res.status(200).json({
-            mensagem: "Sessão iniciada",
-            token,
-            usuario: {
-                id: idUsuario,
-                nome,
-                tipo_usuario
-            }
-        });
+      if (!senhaValida.test(senha)) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "A senha só pode ter no mínimo 6 e no máximo 12 caracteres",
+          });
+      }
 
+      const contactoString = String(contacto);
+      if (!numeroAngola.test(contactoString)) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "O contacto deve ter 9 dígitos e começar com 9",
+          });
+      }
+
+      const tipoLower = (tipo_usuario || "").trim().toLowerCase();
+      if (
+        tipoLower !== "fornecedor" &&
+        tipoLower !== "agricultor" &&
+        (rua || provincia || bairro || municipio || pais)
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Apenas Fornecedores e Agricultores podem adicionar endereço padrão",
+          });
+      }
+
+      const [usuariosExistentes] = await conexao
+        .promise()
+        .query(
+          "SELECT id_usuario FROM usuarios WHERE email = ?",
+          [email]
+        );
+
+      if (usuariosExistentes.length > 0) {
+        return res
+          .status(409)
+          .json({
+            message:
+              "Este e-mail já está cadastrado. Tente outro.",
+          });
+      }
+
+      let fotoUrl = "";
+      if (req.file) {
+        try {
+          console.log("Iniciando upload da foto do usuário para o Cloudinary...");
+          const resultadoUpload = await cloudinaryUtils.uploadToCloudinary(
+            req.file.buffer
+          );
+          fotoUrl = resultadoUpload.secure_url;
+          console.log("Upload da imagem do usuário bem-sucedido:", fotoUrl);
+        } catch (uploadError) {
+          console.log("Erro ao fazer upload da imagem do usuário:", uploadError);
+          return res
+            .status(500)
+            .json({ message: "Erro ao fazer upload da imagem do usuário." });
+        }
+      } else {
+        console.log("Nenhuma imagem fornecida para o usuário");
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      const senhaCriptografada = await bcrypt.hash(senha, salt);
+
+      const [resultado] = await conexao.promise().query(
+        "INSERT INTO usuarios (nome, email, senha, tipo_usuario, foto, descricao, data_criacao, contacto) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)",
+        [
+          nome, email, senhaCriptografada, tipo_usuario, fotoUrl, descricao, contacto,
+        ]
+      );
+
+      const idUsuario = resultado.insertId;
+
+      if (tipo_usuario === "Fornecedor" || tipo_usuario === "Agricultor") {
+        await conexao
+          .promise()
+          .query(
+            "INSERT INTO endereco (id_usuario, rua, bairro, provincia, pais, municipio) VALUES (?, ?, ?, ?, ?, ?)",
+            [idUsuario, rua, bairro, provincia, pais, municipio]
+          );
+      }
+
+      const token = jwt.sign(
+        {
+          id_usuario: idUsuario,
+          nome: nome,
+          tipo_usuario: tipo_usuario,
+        },
+        SECRET_KEY,
+        { expiresIn: "1h" }
+      );
+
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "None",
+        maxAge: 3600000,
+        path: "/",
+      });
+
+      res.status(200).json({
+        mensagem: "Sessão iniciada",
+        token,
+        usuario: {
+          id: idUsuario,
+          nome,
+          tipo_usuario,
+          foto: fotoUrl,
+        },
+      });
     } catch (error) {
-        console.log("Erro ao criar conta:", error);
-        res.status(500).json({ message: "Erro ao criar conta", error });
+      console.log("Erro ao criar conta:", error);
+      res.status(500).json({ message: "Erro ao criar conta", error });
     }
-});
+  }
+);
 
 
 
