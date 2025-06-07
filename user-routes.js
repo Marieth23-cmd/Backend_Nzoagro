@@ -70,6 +70,7 @@ router.get("/me",autenticarToken, async (req, res) => {
     const userid = req.usuario.id_usuario;
     try {
         const sql =  `SELECT
+        user.id_usuario AS id_usuario,
         user.nome AS nome,
         user.descricao AS descricao,
         COALESCE( user.foto , "Sem Foto") AS fotografia,
