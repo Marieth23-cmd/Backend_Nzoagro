@@ -23,7 +23,5 @@ const pool = mysql.createPool({
   }
   })
   
-  // Libera a conexão após o uso
-// Exportar o pool para uso em outros arquivos
-
+  
 module.exports = pool;

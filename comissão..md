@@ -492,3 +492,26 @@ CREATE TABLE IF NOT EXISTS movimentacoes_conta_virtual (
     data_movimentacao DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (conta_virtual_id) REFERENCES contas_virtuais(id)
 );
+
+
+O trecho de código apresentado define um componente React chamado CategoriaFrutas, responsável por exibir e filtrar produtos da categoria "Frutas" em uma aplicação Next.js com TypeScript. O componente utiliza vários hooks de estado (useState) para controlar os produtos filtrados, os produtos originais, os valores dos filtros (tipo, província e faixa de preço), o estado de carregamento, mensagens de erro e sugestões contextuais para o usuário.
+
+A função principal de filtragem, aplicarFiltros, é assíncrona e aplica os filtros selecionados pelo usuário. Ela determina os limites de preço com base na faixa escolhida e chama o serviço buscarProdutosPorCategoria para buscar os produtos que correspondem aos critérios. Após receber os resultados, filtra ainda mais pelo nome do produto, atualiza o estado dos produtos filtrados e, caso nenhum produto seja encontrado, aciona a geração de sugestões contextuais para ajudar o usuário a encontrar alternativas.
+
+A função gerarSugestoesContextuais é responsável por analisar todos os produtos disponíveis e sugerir outras províncias, faixas de preço ou tipos de frutas que possam estar disponíveis, caso a combinação de filtros do usuário não retorne resultados. Isso melhora a experiência do usuário ao oferecer caminhos alternativos de busca.
+
+Os handlers handleTipoChange, handleProvinciaChange e handlePrecoChange atualizam os filtros conforme o usuário interage com os campos de seleção. Além disso, funções como aplicarSugestaoFaixaPreco, aplicarSugestaoProvincia e aplicarSugestaoTipo permitem que o usuário aplique rapidamente sugestões contextuais clicando nelas.
+
+O useEffect inicializa a lista de produtos originais ao carregar o componente, buscando todos os produtos da categoria "Frutas" quando nenhum filtro está ativado. O código também inclui uma lógica para eliminar duplicatas de produtos com base no nome, garantindo que cada fruta apareça apenas uma vez nas opções de filtro. Por fim, a função traduzirFaixaPreco converte os códigos das faixas de preço em textos legíveis para exibição na interface.
+
+No geral, o componente é estruturado para oferecer uma experiência de filtragem dinâmica e amigável, com feedbacks e sugestões inteligentes para o usuário, utilizando boas práticas de React e TypeScript.O trecho de código apresentado define um componente React chamado CategoriaFrutas, responsável por exibir e filtrar produtos da categoria "Frutas" em uma aplicação Next.js com TypeScript. O componente utiliza vários hooks de estado (useState) para controlar os produtos filtrados, os produtos originais, os valores dos filtros (tipo, província e faixa de preço), o estado de carregamento, mensagens de erro e sugestões contextuais para o usuário.
+
+A função principal de filtragem, aplicarFiltros, é assíncrona e aplica os filtros selecionados pelo usuário. Ela determina os limites de preço com base na faixa escolhida e chama o serviço buscarProdutosPorCategoria para buscar os produtos que correspondem aos critérios. Após receber os resultados, filtra ainda mais pelo nome do produto, atualiza o estado dos produtos filtrados e, caso nenhum produto seja encontrado, aciona a geração de sugestões contextuais para ajudar o usuário a encontrar alternativas.
+
+A função gerarSugestoesContextuais é responsável por analisar todos os produtos disponíveis e sugerir outras províncias, faixas de preço ou tipos de frutas que possam estar disponíveis, caso a combinação de filtros do usuário não retorne resultados. Isso melhora a experiência do usuário ao oferecer caminhos alternativos de busca.
+
+Os handlers handleTipoChange, handleProvinciaChange e handlePrecoChange atualizam os filtros conforme o usuário interage com os campos de seleção. Além disso, funções como aplicarSugestaoFaixaPreco, aplicarSugestaoProvincia e aplicarSugestaoTipo permitem que o usuário aplique rapidamente sugestões contextuais clicando nelas.
+
+O useEffect inicializa a lista de produtos originais ao carregar o componente, buscando todos os produtos da categoria "Frutas" quando nenhum filtro está ativado. O código também inclui uma lógica para eliminar duplicatas de produtos com base no nome, garantindo que cada fruta apareça apenas uma vez nas opções de filtro. Por fim, a função traduzirFaixaPreco converte os códigos das faixas de preço em textos legíveis para exibição na interface.
+
+No geral, o componente é estruturado para oferecer uma experiência de filtragem dinâmica e amigável, com feedbacks e sugestões inteligentes para o usuário, utilizando boas práticas de React e TypeScript.

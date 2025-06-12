@@ -58,15 +58,16 @@ router.get("/",autenticarToken, async (req, res) => {
         res.status(500).json({ message: "Erro ao buscar pedidos", error: error.message });
     }
 });
- 
-router.get("/especifico", autenticarToken, async (req, res) => {
+       router.get("/especifico", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
-  
+       
     try {
         const [pedidos] = await conexao.promise().query(`
             SELECT 
-                p.id_pedido, p.estado, p.valor_total, p.data_pedido
+                p.id_pedido, p.estado, p.valor_total, p.data_pedido,
+                ep.rua, ep.bairro, ep.pais, ep.municipio, ep.referencia, ep.provincia, ep.numero
             FROM pedidos p
+            LEFT JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
             WHERE p.id_usuario = ?
             ORDER BY p.data_pedido DESC
         `, [id_usuario]);
@@ -244,6 +245,12 @@ router.post("/criar", autenticarToken, async (req, res) => {
         });
     }
 });
+
+
+//cancelar estado do pedido
+
+
+
 
 
 router.delete("/:id_pedido", autenticarToken, async (req, res) => {
