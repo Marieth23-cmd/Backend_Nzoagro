@@ -58,6 +58,9 @@ router.get("/",autenticarToken, async (req, res) => {
         res.status(500).json({ message: "Erro ao buscar pedidos", error: error.message });
     }
 });
+
+
+
        router.get("/especifico", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
        

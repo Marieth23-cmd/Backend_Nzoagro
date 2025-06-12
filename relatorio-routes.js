@@ -496,13 +496,13 @@ router.get("/exportar/vendas/fornecedor/pdf", autenticarToken, autorizarUsuario(
         res.setHeader("Content-Disposition", "attachment;filename=minhas_vendas.pdf");
         
         doc.pipe(res);
-        doc.fontSize(16).text("Relatório de Minhas Vendas", { align: "center" });
+        doc.fontSize(18).text("Relatório de Minhas Vendas", { align: "center" });
         doc.moveDown();
-        doc.fontSize(10).text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: "center" });
+        doc.fontSize(12).text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: "center" });
         doc.moveDown(2);
 
         let yPosition = 150;
-        doc.fontSize(8);
+        doc.fontSize(10);
 
         resultados.forEach((item) => {
             if (yPosition > 700) {
@@ -518,9 +518,9 @@ router.get("/exportar/vendas/fornecedor/pdf", autenticarToken, autorizarUsuario(
             
             doc.text(`Produto: ${item.Nome_Produto}`, 50, yPosition);
             doc.text(`Qtd: ${item.Quantidade_Vendida}`, 300, yPosition);
-            doc.text(`Preço: R$ ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
-            doc.text(`Total: R$ ${parseFloat(item.Valor_Total).toFixed(2)}`, 450, yPosition);
-            
+            doc.text(`Preço: kz(s) ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
+            doc.text(`Total: kz(s) ${parseFloat(item.Valor_Total).toFixed(2)}`, 450, yPosition);
+
             yPosition += 20;
             doc.moveTo(50, yPosition).lineTo(550, yPosition).stroke();
             yPosition += 10;
@@ -610,13 +610,13 @@ router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) 
         res.setHeader("Content-Disposition", "attachment;filename=minhas_compras.pdf");
         
         doc.pipe(res);
-        doc.fontSize(16).text("Relatório de Minhas Compras", { align: "center" });
+        doc.fontSize(18).text("Relatório de Minhas Compras", { align: "center" });
         doc.moveDown();
-        doc.fontSize(10).text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: "center" });
+        doc.fontSize(12).text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: "center" });
         doc.moveDown(2);
 
         let yPosition = 150;
-        doc.fontSize(8);
+        doc.fontSize(10);
 
         resultados.forEach((item) => {
             if (yPosition > 700) {
@@ -632,9 +632,9 @@ router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) 
             
             doc.text(`Produto: ${item.Nome_Produto}`, 50, yPosition);
             doc.text(`Qtd: ${item.Quantidade_Comprada}`, 300, yPosition);
-            doc.text(`Preço: R$ ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
-            doc.text(`Total: R$ ${parseFloat(item.Valor_Total).toFixed(2)}`, 450, yPosition);
-            
+            doc.text(`Preço: kz(s) ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
+            doc.text(`Total: kz(s) ${parseFloat(item.Valor_Total).toFixed(2)}`, 450, yPosition);
+
             yPosition += 20;
             doc.moveTo(50, yPosition).lineTo(550, yPosition).stroke();
             yPosition += 10;
@@ -727,13 +727,13 @@ router.get("/exportar/vendas/pdf", autenticarToken, autorizarUsuario(["Administr
         doc.pipe(res);
         
         // Título do relatório
-        doc.fontSize(16).text("Relatório de Vendas", { align: "center" });
+        doc.fontSize(18).text("Relatório de Vendas", { align: "center" });
         doc.moveDown();
-        doc.fontSize(10).text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: "center" });
+        doc.fontSize(12).text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: "center" });
         doc.moveDown(2);
 
         // Cabeçalho da tabela
-        doc.fontSize(8);
+        doc.fontSize(10);
         let yPosition = 150;
 
         // Adicionar dados
@@ -752,9 +752,9 @@ router.get("/exportar/vendas/pdf", autenticarToken, autorizarUsuario(["Administr
             
             doc.text(`Produto: ${item.Nome_Produto}`, 50, yPosition);
             doc.text(`Qtd: ${item.Quantidade_Vendida}`, 300, yPosition);
-            doc.text(`Preço: R$ ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
-            doc.text(`Total: R$ ${parseFloat(item.Valor_Total).toFixed(2)}`, 450, yPosition);
-            
+            doc.text(`Preço: kz(s) ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
+            doc.text(`Total: kz(s) ${parseFloat(item.Valor_Total).toFixed(2)}`, 450, yPosition);
+
             yPosition += 20;
             doc.moveTo(50, yPosition).lineTo(550, yPosition).stroke(); // Linha separadora
             yPosition += 10;
