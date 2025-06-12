@@ -111,7 +111,7 @@ app.use("/pagamentos", pagamentos);
 app.use("/login", login);
 app.use("/carrinho", carrinho);
 app.use("/avaliacoes", avaliacoes);
-app.use ("transportadoras",transportadoras);
+app.use ("/transportadoras",transportadoras);
 
 
 
