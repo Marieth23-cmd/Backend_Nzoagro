@@ -12,7 +12,7 @@ const { autenticarToken } = require("./mildwaretoken");
 
 router.post("/cadastrar", async (req, res) => {
     const { nome, nif, telefone, email, senha, provincia_base } = req.body;
-
+        console.log( "dados recebidos", req.body)
     // Validação de campos obrigatórios
     if (!nome || !nif || !telefone || !email || !senha) {
         return res.status(400).json({
