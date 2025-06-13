@@ -5,8 +5,9 @@ const router = express.Router();
 const conexao = require("./database");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const SECRET_KEY = process.env.SECRET
 const { autenticarToken } = require("./mildwaretoken");
+ const SECRET_KEY = process.env.SECRET_KEY || "chaveDeSegurancaPadrao";
+
 
 
 

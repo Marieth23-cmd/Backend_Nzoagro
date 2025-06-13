@@ -369,5 +369,21 @@ router.get("/total-usuarios", async (req, res) => {
 })
 
 
+//listar transportadoras
+ router.get("/transportadoras " ,async  (req , res) =>{
+  const sql =`SELECT * from trasportadoras `
+
+  try {
+    const [resultado] = await conexao.promise().query(sql)
+    res.json(resultado[0])
+    
+  } catch (error) {
+    res.status(500).json({ erro: "Erro ao buscar transportadora", detalhe: erro.message });
+
+    
+  }
+ })
+
+
 
 module.exports = router;
