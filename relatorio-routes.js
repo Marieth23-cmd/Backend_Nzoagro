@@ -103,7 +103,7 @@ router.get("/vendas/fornecedor", autenticarToken, autorizarUsuario(["Agricultor"
             p.estado AS Estado,
             u.nome AS Nome_Comprador,
             u.email AS Email_Comprador,
-            pag.status_pagamentos AS Status_Pagamento,
+            pag.status_pagamento AS Status_Pagamento,
             prod.nome AS Nome_Produto,
             prod.categoria AS Categoria_Produto,
             item.quantidade_comprada AS Quantidade_Vendida,
