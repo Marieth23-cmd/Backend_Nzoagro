@@ -443,54 +443,57 @@ const calcularDivisaoComValidacao = async (
 // ========================================
 // ROTA: GERAR REFERÊNCIA DE PAGAMENTO
 // ========================================
+
 router.post("/gerar-referencia", autenticarToken, async (req, res) => {
-    const {tipo_pagamento,valor_total,carrinho_id  } = req.body;
+    // DEBUG: Ver exatamente o que está chegando
+    console.log("=== DEBUG GERAR REFERÊNCIA ===");
+    console.log("Body completo:", JSON.stringify(req.body, null, 2));
+    console.log("Headers:", req.headers);
+    console.log("Usuario logado:", req.usuario);
+    
+    const { tipo_pagamento, valor_total, carrinho_id } = req.body;
     const id_usuario = req.usuario.id_usuario;
+    const id_vendedor = req.body.id_vendedor || id_usuario;
     
-    const id_vendedor = req.body.id_vendedor || id_usuario; // Se não passar, assume o próprio usuário
-    
+    // 1. VALIDAÇÕES BÁSICAS (obrigatórias)
     if (!id_usuario || !tipo_pagamento || !valor_total) {
+        console.error("Dados obrigatórios faltando:", { id_usuario, tipo_pagamento, valor_total });
         return res.status(400).json({ 
-            erro: "Dados obrigatórios: id_usuario, tipo_pagamento, valor_total" 
+            erro: "Dados obrigatórios: id_usuario, tipo_pagamento, valor_total",
+            recebido: { id_usuario, tipo_pagamento, valor_total }
         });
     }
 
+    // 2. VALIDAR TIPO DE PAGAMENTO
     if (!TIPOS_PAGAMENTO[tipo_pagamento]) {
+        console.error("Tipo de pagamento inválido:", tipo_pagamento);
+        console.error("Tipos disponíveis:", Object.keys(TIPOS_PAGAMENTO));
         return res.status(400).json({ 
             erro: "Tipo de pagamento inválido",
-            tipos_disponiveis: Object.keys(TIPOS_PAGAMENTO)
+            tipos_disponiveis: Object.keys(TIPOS_PAGAMENTO),
+            recebido: tipo_pagamento,
+            tipo_da_variavel: typeof tipo_pagamento
         });
     }
 
     try {
-
-
-        const validacao = await validarCompatibilidadeOperadoras(
-            tipo_pagamento, 
-            id_vendedor, 
-           
-        );
-        
-        if (!validacao.compativel) {
-            return res.status(400).json({
-                erro: "Incompatibilidade de operadoras",
-                problemas: validacao.problemas,
-                sugestao: "Escolha outro método ou atualize as contas"
-            });
-        }
-        // Verificar se o usuário existe
+        // 3. VERIFICAR SE USUÁRIO EXISTE (básico)
         const [usuario] = await conexao.promise().query(`
-            SELECT * FROM usuarios WHERE id_usuario = ?
+            SELECT id_usuario, nome, email FROM usuarios WHERE id_usuario = ?
         `, [id_usuario]);
 
         if (usuario.length === 0) {
             return res.status(404).json({ erro: "Usuário não encontrado" });
         }
 
-        // Gerar referência
+        console.log("Usuário encontrado:", usuario[0]);
+
+        // 4. GERAR REFERÊNCIA (SEM validação de operadoras por enquanto)
         const dadosReferencia = gerarReferenciaPagamento(valor_total, tipo_pagamento);
         
-        // Salvar referência no banco (você precisa criar esta tabela)
+        console.log("Referência gerada:", dadosReferencia);
+
+        // 5. SALVAR REFERÊNCIA NO BANCO
         const [resultado] = await conexao.promise().query(`
             INSERT INTO referencias_pagamento 
             (referencia, id_usuario, tipo_pagamento, valor_total, carrinho_id, status, valida_ate, criada_em)
@@ -504,34 +507,76 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
             dadosReferencia.valida_ate
         ]);
 
+        console.log("Referência salva no banco, ID:", resultado.insertId);
+
+        // 6. BUSCAR DADOS DO MÉTODO DE PAGAMENTO
         const metodoPagamento = TIPOS_PAGAMENTO[tipo_pagamento];
 
+        // 7. MONTAR INSTRUÇÕES DETALHADAS
+        const instrucoes = {
+            unitel_money: {
+                passo1: "Digite *409# no seu telefone Unitel",
+                passo2: "Selecione a opção de pagamento",
+                passo3: `Insira a referência: ${dadosReferencia.referencia}`,
+                passo4: `Confirme o valor: ${(dadosReferencia.valor_total / 100).toFixed(2)} Kz`
+            },
+            africell_money: {
+                passo1: "Digite *777# no seu telefone Africell", 
+                passo2: "Selecione a opção de pagamento",
+                passo3: `Insira a referência: ${dadosReferencia.referencia}`,
+                passo4: `Confirme o valor: ${(dadosReferencia.valor_total / 100).toFixed(2)} Kz`
+            },
+            multicaixa_express: {
+                passo1: "Vá ao ATM Multicaixa mais próximo OU abra o App Multicaixa",
+                passo2: "Selecione 'Pagamento de Serviços'",
+                passo3: `Insira a referência: ${dadosReferencia.referencia}`,
+                passo4: `Confirme o valor: ${(dadosReferencia.valor_total / 100).toFixed(2)} Kz`
+            }
+        };
+
+        // 8. RESPOSTA DE SUCESSO
         res.json({
             sucesso: true,
             referencia: {
                 codigo: dadosReferencia.referencia,
                 valor: dadosReferencia.valor_total,
+                valor_formatado: `${(dadosReferencia.valor_total / 100).toFixed(2)} Kz`,
                 metodo_pagamento: metodoPagamento.nome,
                 operadora: metodoPagamento.operadora,
                 taxa: `${(metodoPagamento.taxa * 100).toFixed(1)}%`,
                 valida_ate: dadosReferencia.valida_ate,
-                instrucoes: {
-                    unitel_money: metodoPagamento.codigo_ussd ? `Digite ${metodoPagamento.codigo_ussd} e insira a referência: ${dadosReferencia.referencia}` : null,
-                    africell_money: metodoPagamento.codigo_ussd ? `Digite ${metodoPagamento.codigo_ussd} e insira a referência: ${dadosReferencia.referencia}` : null,
-                    multicaixa_express: "Vá ao ATM Multicaixa ou use o App Multicaixa Express, selecione 'Pagamento de Serviços' e insira a referência"
-                }[tipo_pagamento]
+                status: 'ativa'
             },
-            observacao: "⚠️ Esta referência já contém TODOS os valores (produto + frete + taxas). Você só precisa inserir o código!"
+            instrucoes: instrucoes[tipo_pagamento],
+            observacoes: [
+                "⚠️ Esta referência já contém TODOS os valores (produto + frete + taxas)",
+                "💡 Você só precisa inserir o código da referência",
+                "⏰ A referência é válida por 24 horas",
+                "📱 Mantenha seu telefone por perto para confirmação"
+            ],
+            debug_info: {
+                usuario_id: id_usuario,
+                carrinho_id: carrinho_id,
+                referencia_id: resultado.insertId,
+                timestamp: new Date().toISOString()
+            }
         });
 
+        console.log("Resposta enviada com sucesso!");
+
     } catch (error) {
-        console.error("Erro ao gerar referência:", error);
+        console.error("Erro completo:", error);
+        console.error("Stack trace:", error.stack);
+        
         res.status(500).json({
-            erro: "Erro ao gerar referência de pagamento",
-            detalhe: error.message
+            erro: "Erro interno ao gerar referência de pagamento",
+            detalhe: error.message,
+            codigo_erro: "REF_GEN_ERROR",
+            sugestao: "Tente novamente em alguns segundos"
         });
     }
 });
+
 
 //simular pagamento
 router.post("/simular-pagamento", autenticarToken, async (req, res) => {
