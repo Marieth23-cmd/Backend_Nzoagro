@@ -411,7 +411,7 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
         FROM produtos p
         LEFT JOIN estoque e ON p.id_produtos = e.produto_id
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-        WHERE p.categoria = ? AND  e.status = 'disponível`;
+        WHERE p.categoria = ? `;
   
       const params = [categoria];
   
