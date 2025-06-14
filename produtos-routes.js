@@ -294,24 +294,60 @@ router.put(
     }
   }
 );
-router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor","Administrador"]) ,async (req, res) => {
+
+router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor","Administrador"]), async (req, res) => {
     const produtoId = req.params.id;
-    const sql = "DELETE FROM produtos WHERE id_produtos = ?";
-
+    const usuarioId = req.usuario.id_usuario;
+    const tipoUsuario = req.usuario.tipo;
+    
     try {
-        const [resultado] = await conexao.promise().query(sql, [produtoId]);
-
-        if (resultado.affectedRows === 0) {
+        // Primeiro, buscar informações do produto
+        const [produto] = await conexao.promise().query(
+            "SELECT * FROM produtos WHERE id_produtos = ?", 
+            [produtoId]
+        );
+        
+        if (produto.length === 0) {
             return res.status(404).json({ mensagem: "Produto não encontrado" });
         }
-        await notificar(req.usuario.id_usuario, "Um produto foi deletado.");
-
+        
+        const produtoInfo = produto[0];
+        
+        // Verificar se é o próprio dono ou administrador
+        const ehProprietario = produtoInfo.id_usuario === usuarioId;
+        const ehAdministrador = tipoUsuario === "Administrador";
+        
+        if (!ehProprietario && !ehAdministrador) {
+            return res.status(403).json({ mensagem: "Sem permissão para deletar este produto" });
+        }
+        
+        // Deletar produto
+        const [resultado] = await conexao.promise().query(
+            "DELETE FROM produtos WHERE id_produtos = ?", 
+            [produtoId]
+        );
+        
+        // Notificar APENAS se foi admin que deletou produto de outro usuário
+        if (ehAdministrador && !ehProprietario) {
+            await notificar(
+                produtoInfo.id_usuario, 
+                `Seu produto "${produtoInfo.nome_produto}" foi removido por não cumprir as regras da plataforma.`,
+                'moderacao'
+            );
+            
+            // Log para controle administrativo
+            await conexao.promise().query(
+                "INSERT INTO logs_moderacao (admin_id, usuario_afetado, acao, produto_id, motivo) VALUES (?, ?, ?, ?, ?)",
+                [usuarioId, produtoInfo.id_usuario, 'DELETE_PRODUTO', produtoId, 'Produto fora das regras da plataforma']
+            );
+        }
+        
         res.json({ mensagem: "Produto deletado com sucesso!" });
+        
     } catch (error) {
         res.status(500).json({ erro: "Erro ao deletar o produto", detalhe: error.message });
     }
 });
-
 
 
 router.patch('/:id/destaque', autenticarToken, async (req, res) => {
@@ -375,7 +411,7 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
         FROM produtos p
         LEFT JOIN estoque e ON p.id_produtos = e.produto_id
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-        WHERE p.categoria = ?`;
+        WHERE p.categoria = ? AND  e.status = 'disponível`;
   
       const params = [categoria];
   

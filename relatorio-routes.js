@@ -104,36 +104,55 @@ router.get("/vendas/fornecedor", autenticarToken, autorizarUsuario(["Agricultor"
             u.nome AS Nome_Comprador,
             u.email AS Email_Comprador,
             pag.status_pagamento AS Status_Pagamento,
+            pag.data_pagamento AS Data_Pagamento,
+            pag.valor_bruto AS Valor_Bruto,
+            pag.valor_liquido AS Valor_Liquido_Recebido,
+            pag.valor_comissao AS Comissao_Plataforma,
             prod.nome AS Nome_Produto,
             prod.categoria AS Categoria_Produto,
             item.quantidade_comprada AS Quantidade_Vendida,
             item.preco AS Preco_Unitario,
-            (item.quantidade_comprada * item.preco) AS Valor_Total
+            (item.quantidade_comprada * item.preco) AS Valor_Total_Item
         FROM pedidos p
         JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
         JOIN produtos prod ON item.id_produto = prod.id_produtos
+        JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-        LEFT JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         WHERE prod.id_usuario = ?
+        AND pag.status_pagamento IN ('pago', 'liberado')
     `;
 
     const params = [fornecedorId];
 
     if (dataInicial && dataFinal) {
-        sql += ` AND p.data_pedido BETWEEN ? AND ?`;
+        sql += ` AND pag.data_pagamento BETWEEN ? AND ?`;
         params.push(dataInicial, dataFinal);
     }
 
-    sql += ` ORDER BY p.data_pedido DESC`;
+    sql += ` ORDER BY pag.data_pagamento DESC`;
 
     try {
         const [resultados] = await conexao.promise().query(sql, params);
 
         if (resultados.length === 0) {
-            return res.status(404).json({ mensagem: "Nenhuma venda encontrada neste período." });
+            return res.status(404).json({ 
+                mensagem: "Nenhuma venda paga encontrada neste período." 
+            });
         }
 
-        res.json({ relatorio_vendas_fornecedor: resultados });
+        // Calcular totais do período
+        const totalReceita = resultados.reduce((sum, item) => sum + parseFloat(item.Valor_Liquido_Recebido || 0), 0);
+        const totalComissao = resultados.reduce((sum, item) => sum + parseFloat(item.Comissao_Plataforma || 0), 0);
+
+        res.json({ 
+            relatorio_vendas_fornecedor: resultados,
+            resumo: {
+                total_vendas: resultados.length,
+                receita_total: totalReceita,
+                comissao_total: totalComissao,
+                periodo: dataInicial && dataFinal ? `${dataInicial} a ${dataFinal}` : 'Todo período'
+            }
+        });
     } catch (error) {
         console.log(error);
         res.status(500).json({ mensagem: "Erro ao gerar o relatório de vendas do fornecedor", erro: error });
@@ -194,20 +213,23 @@ router.get("/estatisticas/vendas/fornecedor", autenticarToken, autorizarUsuario(
     const fornecedorId = req.usuario.id_usuario;
 
     try {
-        // Estatísticas gerais das vendas do fornecedor
+        // Estatísticas gerais das vendas do fornecedor (APENAS PAGAS)
         const [estatisticasGerais] = await conexao.promise().query(`
             SELECT 
                 COUNT(DISTINCT p.id_pedido) AS total_pedidos_vendas,
-                SUM(item.quantidade_comprada * item.preco) AS receita_total,
-                AVG(item.quantidade_comprada * item.preco) AS ticket_medio,
+                SUM(pag.valor_liquido) AS receita_total,
+                AVG(pag.valor_liquido) AS ticket_medio,
                 SUM(item.quantidade_comprada) AS total_itens_vendidos
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
             JOIN produtos prod ON item.id_produto = prod.id_produtos
-            WHERE prod.id_usuario = ? AND p.estado IN ('Concluído', 'Entregue')
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
+            WHERE prod.id_usuario = ? 
+            AND p.estado IN ('Concluído', 'Entregue')
+            AND pag.status_pagamento IN ('pago', 'liberado')
         `, [fornecedorId]);
 
-        // Produtos mais vendidos do fornecedor
+        // Produtos mais vendidos do fornecedor (APENAS PAGOS)
         const [produtosMaisVendidos] = await conexao.promise().query(`
             SELECT 
                 prod.nome AS produto,
@@ -216,27 +238,48 @@ router.get("/estatisticas/vendas/fornecedor", autenticarToken, autorizarUsuario(
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
             JOIN produtos prod ON item.id_produto = prod.id_produtos
-            WHERE prod.id_usuario = ? AND p.estado IN ('Concluído', 'Entregue')
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
+            WHERE prod.id_usuario = ? 
+            AND p.estado IN ('Concluído', 'Entregue')
+            AND pag.status_pagamento IN ('pago', 'liberado')
             GROUP BY prod.id_produtos, prod.nome
             ORDER BY total_vendido DESC
             LIMIT 5
         `, [fornecedorId]);
 
-        // Vendas mensais do fornecedor
+        // Vendas mensais do fornecedor (APENAS PAGAS)
         const [vendasMensais] = await conexao.promise().query(`
             SELECT 
-                MONTH(p.data_pedido) AS mes,
-                YEAR(p.data_pedido) AS ano,
+                MONTH(pag.data_pagamento) AS mes,
+                YEAR(pag.data_pagamento) AS ano,
                 COUNT(DISTINCT p.id_pedido) AS pedidos_mes,
-                SUM(item.quantidade_comprada * item.preco) AS receita_mes
+                SUM(pag.valor_liquido) AS receita_mes
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
             JOIN produtos prod ON item.id_produto = prod.id_produtos
-            WHERE prod.id_usuario = ? AND p.estado IN ('Concluído', 'Entregue')
-            AND YEAR(p.data_pedido) = YEAR(CURDATE())
-            GROUP BY YEAR(p.data_pedido), MONTH(p.data_pedido)
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
+            WHERE prod.id_usuario = ? 
+            AND p.estado IN ('Concluído', 'Entregue')
+            AND pag.status_pagamento IN ('pago', 'liberado')
+            AND YEAR(pag.data_pagamento) = YEAR(CURDATE())
+            GROUP BY YEAR(pag.data_pagamento), MONTH(pag.data_pagamento)
             ORDER BY ano DESC, mes DESC
         `, [fornecedorId]);
+
+        // Verificar se tem vendas pagas
+        if (!estatisticasGerais[0] || estatisticasGerais[0].total_pedidos_vendas === 0) {
+            return res.json({
+                mensagem: "Nenhuma venda paga encontrada",
+                estatisticas_gerais: {
+                    total_pedidos_vendas: 0,
+                    receita_total: 0,
+                    ticket_medio: 0,
+                    total_itens_vendidos: 0
+                },
+                produtos_mais_vendidos: [],
+                vendas_mensais: []
+            });
+        }
 
         res.json({
             estatisticas_gerais: estatisticasGerais[0],
@@ -249,24 +292,27 @@ router.get("/estatisticas/vendas/fornecedor", autenticarToken, autorizarUsuario(
     }
 });
 
+
 // Estatísticas para compradores (suas próprias compras)
 router.get("/estatisticas/compras/comprador", autenticarToken, async (req, res) => {
     const compradorId = req.usuario.id_usuario;
 
     try {
-        // Estatísticas gerais das compras do comprador
+        // Estatísticas gerais das compras do comprador (APENAS PAGAS)
         const [estatisticasGerais] = await conexao.promise().query(`
             SELECT 
                 COUNT(DISTINCT p.id_pedido) AS total_pedidos_compras,
-                SUM(item.quantidade_comprada * item.preco) AS gasto_total,
-                AVG(item.quantidade_comprada * item.preco) AS gasto_medio_por_pedido,
+                SUM(pag.valor_bruto) AS gasto_total,
+                AVG(pag.valor_bruto) AS gasto_medio_por_pedido,
                 SUM(item.quantidade_comprada) AS total_itens_comprados
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
             WHERE p.id_usuario = ?
+            AND pag.status_pagamento IN ('pago', 'liberado')
         `, [compradorId]);
 
-        // Produtos mais comprados pelo comprador
+        // Produtos mais comprados pelo comprador (APENAS PAGOS)
         const [produtosMaisComprados] = await conexao.promise().query(`
             SELECT 
                 prod.nome AS produto,
@@ -275,41 +321,64 @@ router.get("/estatisticas/compras/comprador", autenticarToken, async (req, res) 
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
             JOIN produtos prod ON item.id_produto = prod.id_produtos
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
             WHERE p.id_usuario = ?
+            AND pag.status_pagamento IN ('pago', 'liberado')
             GROUP BY prod.id_produtos, prod.nome
             ORDER BY total_comprado DESC
             LIMIT 5
         `, [compradorId]);
 
-        // Compras mensais do comprador
+        // Compras mensais do comprador (APENAS PAGAS)
         const [comprasMensais] = await conexao.promise().query(`
             SELECT 
-                MONTH(p.data_pedido) AS mes,
-                YEAR(p.data_pedido) AS ano,
+                MONTH(pag.data_pagamento) AS mes,
+                YEAR(pag.data_pagamento) AS ano,
                 COUNT(DISTINCT p.id_pedido) AS pedidos_mes,
-                SUM(item.quantidade_comprada * item.preco) AS gasto_mes
+                SUM(pag.valor_bruto) AS gasto_mes
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
-            WHERE p.id_usuario = ? AND YEAR(p.data_pedido) = YEAR(CURDATE())
-            GROUP BY YEAR(p.data_pedido), MONTH(p.data_pedido)
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
+            WHERE p.id_usuario = ? 
+            AND pag.status_pagamento IN ('pago', 'liberado')
+            AND YEAR(pag.data_pagamento) = YEAR(CURDATE())
+            GROUP BY YEAR(pag.data_pagamento), MONTH(pag.data_pagamento)
             ORDER BY ano DESC, mes DESC
         `, [compradorId]);
 
-        // Fornecedores mais comprados
+        // Fornecedores mais comprados (APENAS COMPRAS PAGAS)
         const [fornecedoresFavoritos] = await conexao.promise().query(`
             SELECT 
                 vendedor.nome AS fornecedor,
                 COUNT(DISTINCT p.id_pedido) AS pedidos_fornecedor,
-                SUM(item.quantidade_comprada * item.preco) AS gasto_fornecedor
+                SUM(pag.valor_bruto) AS gasto_fornecedor
             FROM pedidos p
             JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
             JOIN produtos prod ON item.id_produto = prod.id_produtos
             JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
+            JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
             WHERE p.id_usuario = ?
+            AND pag.status_pagamento IN ('pago', 'liberado')
             GROUP BY vendedor.id_usuario, vendedor.nome
             ORDER BY gasto_fornecedor DESC
             LIMIT 5
         `, [compradorId]);
+
+        // Verificar se tem compras pagas
+        if (!estatisticasGerais[0] || estatisticasGerais[0].total_pedidos_compras === 0) {
+            return res.json({
+                mensagem: "Nenhuma compra paga encontrada",
+                estatisticas_gerais: {
+                    total_pedidos_compras: 0,
+                    gasto_total: 0,
+                    gasto_medio_por_pedido: 0,
+                    total_itens_comprados: 0
+                },
+                produtos_mais_comprados: [],
+                compras_mensais: [],
+                fornecedores_favoritos: []
+            });
+        }
 
         res.json({
             estatisticas_gerais: estatisticasGerais[0],
@@ -323,6 +392,7 @@ router.get("/estatisticas/compras/comprador", autenticarToken, async (req, res) 
     }
 });
 
+
 // Relatório de vendas geral (somente para admin)
 router.get("/vendas", autenticarToken, autorizarUsuario(["Administrador"]), async (req, res) => {
     const { dataInicial, dataFinal } = req.query;
@@ -332,46 +402,68 @@ router.get("/vendas", autenticarToken, autorizarUsuario(["Administrador"]), asyn
             p.id_pedido AS Numero_Pedido,
             p.data_pedido AS Data_Pedido,
             p.estado AS Estado,
-            u.nome AS Nome_Usuario,
-            u.email AS Email_Usuario,
+            u.nome AS Nome_Comprador,
+            u.email AS Email_Comprador,
             pag.status_pagamento AS Status_Pagamento,
+            pag.data_pagamento AS Data_Pagamento,
+            pag.valor_bruto AS Valor_Bruto,
+            pag.valor_liquido AS Valor_Liquido_Vendedor,
+            pag.valor_comissao AS Comissao_Plataforma,
+            pag.tipo_pagamento AS Tipo_Pagamento,
             prod.nome AS Nome_Produto,
             prod.categoria AS Categoria_Produto,
             item.quantidade_comprada AS Quantidade_Vendida,
             item.preco AS Preco_Unitario,
-            (item.quantidade_comprada * item.preco) AS Valor_Total,
-            vendedor.nome AS Nome_Vendedor
+            (item.quantidade_comprada * item.preco) AS Valor_Total_Item,
+            vendedor.nome AS Nome_Vendedor,
+            vendedor.email AS Email_Vendedor
         FROM pedidos p
+        JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
+        JOIN produtos prod ON item.id_produto = prod.id_produtos
+        JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
+        JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-        LEFT JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
-        LEFT JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
-        LEFT JOIN produtos prod ON item.id_produto = prod.id_produtos
-        LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
+        WHERE pag.status_pagamento IN ('pago', 'liberado')
     `;
 
     const params = [];
 
-    // Adiciona filtro de data se fornecido
     if (dataInicial && dataFinal) {
-        sql += ` WHERE p.data_pedido BETWEEN ? AND ?`;
+        sql += ` AND pag.data_pagamento BETWEEN ? AND ?`;
         params.push(dataInicial, dataFinal);
     }
 
-    sql += ` ORDER BY p.data_pedido DESC`;
+    sql += ` ORDER BY pag.data_pagamento DESC`;
 
     try {
         const [resultados] = await conexao.promise().query(sql, params);
 
         if (resultados.length === 0) {
-            return res.status(404).json({ mensagem: "Nenhum relatório de vendas encontrado neste período." });
+            return res.status(404).json({ 
+                mensagem: "Nenhuma venda paga encontrada neste período." 
+            });
         }
 
-        res.json({ relatorio_vendas: resultados });
+        // Calcular totais para o admin
+        const totalVendas = resultados.length;
+        const receitaTotalPlataforma = resultados.reduce((sum, item) => sum + parseFloat(item.Comissao_Plataforma || 0), 0);
+        const volumeTransacionado = resultados.reduce((sum, item) => sum + parseFloat(item.Valor_Bruto || 0), 0);
+
+        res.json({ 
+            relatorio_vendas: resultados,
+            resumo_plataforma: {
+                total_transacoes: totalVendas,
+                volume_transacionado: volumeTransacionado,
+                receita_plataforma: receitaTotalPlataforma,
+                periodo: dataInicial && dataFinal ? `${dataInicial} a ${dataFinal}` : 'Todo período'
+            }
+        });
     } catch (error) {
         console.log(error);
         res.status(500).json({ mensagem: "Erro ao gerar o relatório de vendas", erro: error });
     }
 });
+
 
 // Estatísticas de vendas (somente para admin)
 router.get("/estatisticas/vendas", autenticarToken, autorizarUsuario(["Administrador"]), async (req, res) => {

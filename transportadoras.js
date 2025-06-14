@@ -9,8 +9,6 @@ const { autenticarToken } = require("./mildwaretoken");
  const SECRET_KEY = process.env.SECRET_KEY || "chaveDeSegurancaPadrao";
 
 
-
-
 router.post("/cadastrar", async (req, res) => {
     const { nome, nif, telefone, email, senha, provincia_base } = req.body;
         console.log( "dados recebidos", req.body)
@@ -53,7 +51,7 @@ router.post("/cadastrar", async (req, res) => {
 
         const idTransportadora = resultado.insertId;
 
-        // Cria o token JWT para a sessão
+        // Criar o token JWT para a sessão
         const token = jwt.sign(
             { id_transportadora: idTransportadora, nome, tipo: "transportadora" },
             SECRET_KEY,
@@ -240,6 +238,318 @@ router.get("/filiais/:id_transportadora", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao buscar filiais." });
     }
 });
+
+
+
+router.get("/filiais-select", autenticarToken, async (req, res) => {
+    const transportadora_id = req.usuario.id_usuario;
+    
+    try {
+        const [filiais] = await conexao.promise().query(`
+            SELECT 
+                id_filial,
+                provincia,
+                bairro,
+                descricao,
+                CONCAT(provincia, ' - ', COALESCE(bairro, 'Centro'), 
+                       CASE WHEN descricao IS NOT NULL THEN CONCAT(' (', descricao, ')') ELSE '' END
+                ) as nome_completo
+            FROM filiais_transportadora 
+            WHERE transportadora_id = ?
+            ORDER BY provincia, bairro
+        `, [transportadora_id]);
+
+        if (filiais.length === 0) {
+            return res.status(404).json({ 
+                mensagem: "Nenhuma filial cadastrada. Cadastre pelo menos uma filial primeiro.",
+                filiais: []
+            });
+        }
+
+        res.json({ 
+            mensagem: "Filiais carregadas com sucesso",
+            total: filiais.length,
+            filiais 
+        });
+
+    } catch (erro) {
+        console.error("Erro ao buscar filiais:", erro);
+        res.status(500).json({ erro: "Erro ao carregar filiais." });
+    }
+});
+
+/**
+ * Aceitar pedido e notificar cliente sobre filial de retirada
+ */
+router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
+    const transportadora_id = req.usuario.id_usuario;
+    const { pedidos_id, filial_retirada_id, observacoes } = req.body;
+    const io = req.io; // Socket.io para notificações em tempo real
+
+    // Validações
+    if (!pedidos_id || !filial_retirada_id) {
+        return res.status(400).json({ 
+            mensagem: "ID do pedido e filial de retirada são obrigatórios." 
+        });
+    }
+
+    try {
+        // Verificar se pedido existe e está disponível
+        const [pedidoInfo] = await conexao.promise().query(`
+            SELECT 
+                p.id_pedido,
+                p.id_usuario,
+                p.valor_total,
+                p.estado,
+                u.nome as cliente_nome,
+                u.email as cliente_email,
+                u.contacto as cliente_telefone,
+                ep.provincia as cliente_provincia,
+                ep.municipio as cliente_municipio,
+                ep.bairro as cliente_bairro
+            FROM pedidos p
+            JOIN usuarios u ON p.id_usuario = u.id_usuario
+            JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
+            WHERE p.id_pedido = ? AND p.estado IN ('processado', 'enviado')
+        `, [pedidos_id]);
+
+        if (pedidoInfo.length === 0) {
+            return res.status(404).json({ 
+                mensagem: "Pedido não encontrado ou não está disponível para coleta." 
+            });
+        }
+
+        // Verificar se pedido já está sendo entregue
+        const [entregaExistente] = await conexao.promise().query(
+            "SELECT id_entregas FROM entregas WHERE pedidos_id = ?",
+            [pedidos_id]
+        );
+
+        if (entregaExistente.length > 0) {
+            return res.status(400).json({ 
+                mensagem: "Este pedido já está sendo entregue por outra transportadora." 
+            });
+        }
+
+        // Buscar informações da filial escolhida
+        const [filialInfo] = await conexao.promise().query(`
+            SELECT 
+                id_filial,
+                provincia,
+                bairro,
+                descricao,
+                CONCAT(provincia, ' - ', COALESCE(bairro, 'Centro'), 
+                       CASE WHEN descricao IS NOT NULL THEN CONCAT(' (', descricao, ')') ELSE '' END
+                ) as endereco_completo
+            FROM filiais_transportadora 
+            WHERE id_filial = ? AND transportadora_id = ?
+        `, [filial_retirada_id, transportadora_id]);
+
+        if (filialInfo.length === 0) {
+            return res.status(404).json({ 
+                mensagem: "Filial não encontrada ou não pertence à sua transportadora." 
+            });
+        }
+
+        // Buscar nome da transportadora
+        const [transportadoraInfo] = await conexao.promise().query(
+            "SELECT nome, contacto FROM transportadoras WHERE id = ?",
+            [transportadora_id]
+        );
+
+        const pedido = pedidoInfo[0];
+        const filial = filialInfo[0];
+        const transportadora = transportadoraInfo[0];
+
+        // Registrar a entrega
+        await conexao.promise().query(`
+            INSERT INTO entregas 
+            (data_entrega, estado_entrega, pedidos_id, endereco, contacto_cliente, 
+             transportadora_id, filial_retirada_id, observacoes)
+            VALUES 
+            (NOW(), 'aguardando retirada', ?, ?, ?, ?, ?, ?)
+        `, [
+            pedidos_id,
+            filial.endereco_completo,
+            pedido.cliente_telefone,
+            transportadora_id,
+            filial_retirada_id,
+            observacoes || null
+        ]);
+
+        // Atualizar estado do pedido
+        await conexao.promise().query(
+            "UPDATE pedidos SET estado = 'aguardando retirada' WHERE id_pedido = ?",
+            [pedidos_id]
+        );
+
+        // ENVIAR NOTIFICAÇÃO PARA O CLIENTE
+        const mensagemCliente = `🚚 Seu pedido #${pedidos_id} está pronto para retirada!\n` +
+                               `📍 Local: ${filial.endereco_completo}\n` +
+                               `🏢 Transportadora: ${transportadora.nome}\n` +
+                               `📞 Contato: ${transportadora.contacto}` +
+                               (observacoes ? `\n💬 Observações: ${observacoes}` : '');
+
+        // Notificação via Socket.io (tempo real)
+        io.to(`usuario_${pedido.id_usuario}`).emit("pedido_pronto_retirada", {
+            message: mensagemCliente,
+            pedido_id: pedidos_id,
+            estado: "aguardando retirada",
+            filial: {
+                endereco: filial.endereco_completo,
+                provincia: filial.provincia,
+                bairro: filial.bairro,
+                descricao: filial.descricao
+            },
+            transportadora: {
+                nome: transportadora.nome,
+                contacto: transportadora.contacto
+            },
+            observacoes: observacoes,
+            timestamp: new Date().toISOString()
+        });
+
+        // Salvar notificação no banco (para histórico)
+        await conexao.promise().query(`
+            INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)
+            VALUES (?, 'pedido_pronto', 'Pedido Pronto para Retirada', ?, 0)
+        `, [pedido.id_usuario, mensagemCliente]);
+
+        res.status(201).json({
+            mensagem: "Pedido aceito e cliente notificado com sucesso!",
+            detalhes: {
+                pedido_id: pedidos_id,
+                cliente: pedido.cliente_nome,
+                filial_retirada: filial.endereco_completo,
+                estado: "aguardando retirada",
+                notificacao_enviada: true
+            }
+        });
+
+    } catch (erro) {
+        console.error("Erro ao aceitar pedido:", erro);
+        res.status(500).json({ 
+            mensagem: "Erro ao processar pedido.", 
+            erro: erro.message 
+        });
+    }
+});
+
+/**
+ * Finalizar entrega (quando cliente retirou o produto)
+ */
+router.put("/finalizar-entrega/:pedido_id", autenticarToken, async (req, res) => {
+    const { pedido_id } = req.params;
+    const { observacoes_finais } = req.body;
+    const transportadora_id = req.usuario.id_usuario;
+    const io = req.io;
+
+    try {
+        // Verificar se a entrega existe e pertence à transportadora
+        const [entregaInfo] = await conexao.promise().query(`
+            SELECT e.*, p.id_usuario, u.nome as cliente_nome
+            FROM entregas e
+            JOIN pedidos p ON e.pedidos_id = p.id_pedido
+            JOIN usuarios u ON p.id_usuario = u.id_usuario
+            WHERE e.pedidos_id = ? AND e.transportadora_id = ?
+        `, [pedido_id, transportadora_id]);
+
+        if (entregaInfo.length === 0) {
+            return res.status(404).json({ 
+                mensagem: "Entrega não encontrada ou não autorizada." 
+            });
+        }
+
+        const entrega = entregaInfo[0];
+
+        // Atualizar estado da entrega
+        await conexao.promise().query(`
+            UPDATE entregas 
+            SET estado_entrega = 'entregue', 
+                data_finalizacao = NOW(),
+                observacoes_finais = ?
+            WHERE pedidos_id = ?
+        `, [observacoes_finais || null, pedido_id]);
+
+        // Atualizar estado do pedido
+        await conexao.promise().query(
+            "UPDATE pedidos SET estado = 'entregue' WHERE id_pedido = ?",
+            [pedido_id]
+        );
+
+        // Notificar cliente
+        const mensagemFinal = `✅ Pedido #${pedido_id} foi entregue com sucesso!\n` +
+                             `Obrigado por escolher nossos serviços!`;
+
+        io.to(`usuario_${entrega.id_usuario}`).emit("pedido_entregue", {
+            message: mensagemFinal,
+            pedido_id: pedido_id,
+            estado: "entregue",
+            timestamp: new Date().toISOString()
+        });
+
+        // Salvar notificação
+        await conexao.promise().query(`
+            INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)
+            VALUES (?, 'pedido_entregue', 'Pedido Entregue', ?, 0)
+        `, [entrega.id_usuario, mensagemFinal]);
+
+        res.json({
+            mensagem: "Entrega finalizada com sucesso!",
+            pedido_id: pedido_id,
+            cliente: entrega.cliente_nome,
+            estado: "entregue"
+        });
+
+    } catch (erro) {
+        console.error("Erro ao finalizar entrega:", erro);
+        res.status(500).json({ erro: "Erro ao finalizar entrega." });
+    }
+});
+
+// ===== ROTA PARA CLIENTES CONSULTAREM NOTIFICAÇÕES =====
+
+/**
+ * Buscar notificações do cliente
+ */
+router.get("/minhas-notificacoes", autenticarToken, async (req, res) => {
+    const usuario_id = req.usuario.id_usuario;
+    
+    try {
+        const [notificacoes] = await conexao.promise().query(`
+            SELECT 
+                id_notificacoes,
+                tipo,
+                titulo,
+                mensagem,
+                is_lida,
+                hora
+            FROM notificacoes 
+            WHERE usuarios_id = ?
+            ORDER BY hora DESC
+            LIMIT 50
+        `, [usuario_id]);
+
+        // Marcar como lidas
+        if (notificacoes.length > 0) {
+            await conexao.promise().query(
+                "UPDATE notificacoes SET is_lida = 1 WHERE usuarios_id = ? AND is_lida = 0",
+                [usuario_id]
+            );
+        }
+
+        res.json({
+            mensagem: "Notificações carregadas",
+            total: notificacoes.length,
+            notificacoes
+        });
+
+    } catch (erro) {
+        console.error("Erro ao buscar notificações:", erro);
+        res.status(500).json({ erro: "Erro ao carregar notificações." });
+    }
+});
+
 
 
 module.exports = router;
