@@ -335,18 +335,20 @@ router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Forneced
                 'moderacao'
             );
             
-            // Log para controle administrativo
-            await conexao.promise().query(
-                "INSERT INTO logs_moderacao (admin_id, usuario_afetado, acao, produto_id, motivo) VALUES (?, ?, ?, ?, ?)",
-                [usuarioId, produtoInfo.id_usuario, 'DELETE_PRODUTO', produtoId, 'Produto fora das regras da plataforma']
-            );
-        }
+        //     // Log para controle administrativo
+        //     await conexao.promise().query(
+        //         "INSERT INTO logs_moderacao (admin_id, usuario_afetado, acao, produto_id, motivo) VALUES (?, ?, ?, ?, ?)",
+        //         [usuarioId, produtoInfo.id_usuario, 'DELETE_PRODUTO', produtoId, 'Produto fora das regras da plataforma']
+        //     );
+        // }
         
         res.json({ mensagem: "Produto deletado com sucesso!" });
         
-    } catch (error) {
-        res.status(500).json({ erro: "Erro ao deletar o produto", detalhe: error.message });
     }
+   } catch (error) {
+        res.status(500).json({ erro: "Erro ao deletar o produto", detalhe: error.message });
+    
+     }
 });
 
 
@@ -390,6 +392,9 @@ router.patch('/:id/destaque', autenticarToken, async (req, res) => {
   }
 });
   
+
+
+
   router.get("/categoria/:categoria", async (req, res) => {
     try {
       const { categoria } = req.params;

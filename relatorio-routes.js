@@ -571,8 +571,11 @@ router.get("/exportar/vendas/fornecedor/pdf", autenticarToken, autorizarUsuario(
         FROM pedidos p
         JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
         JOIN produtos prod ON item.id_produto = prod.id_produtos
+        JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
         WHERE prod.id_usuario = ?
+        AND p.estado IN ('Concluído', 'Entregue')
+        AND pag.status_pagamento IN ('pago', 'liberado')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -625,6 +628,7 @@ router.get("/exportar/vendas/fornecedor/pdf", autenticarToken, autorizarUsuario(
     }
 });
 
+
 // Exportar relatório de vendas do fornecedor como CSV
 router.get("/exportar/vendas/fornecedor/csv", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor"]), async (req, res) => {
     const fornecedorId = req.usuario.id_usuario;
@@ -644,8 +648,11 @@ router.get("/exportar/vendas/fornecedor/csv", autenticarToken, autorizarUsuario(
         FROM pedidos p
         JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
         JOIN produtos prod ON item.id_produto = prod.id_produtos
+        JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
         WHERE prod.id_usuario = ?
+        AND p.estado IN ('Concluído', 'Entregue')
+        AND pag.status_pagamento IN ('pago', 'liberado')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -668,10 +675,11 @@ router.get("/exportar/vendas/fornecedor/csv", autenticarToken, autorizarUsuario(
     }
 });
 
+
 // Exportar relatório de compras do comprador como PDF
 router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) => {
     const compradorId = req.usuario.id_usuario;
-    
+
     const sql = `
         SELECT 
             p.id_pedido AS Numero_Pedido,
@@ -686,7 +694,10 @@ router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) 
         JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
         JOIN produtos prod ON item.id_produto = prod.id_produtos
         LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
+        JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         WHERE p.id_usuario = ?
+        AND p.estado IN ('Concluído', 'Entregue')
+        AND pag.status_pagamento IN ('pago', 'liberado')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -700,7 +711,7 @@ router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) 
         const doc = new PDFDocument();
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", "attachment;filename=minhas_compras.pdf");
-        
+
         doc.pipe(res);
         doc.fontSize(18).text("Relatório de Minhas Compras", { align: "center" });
         doc.moveDown();
@@ -719,9 +730,9 @@ router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) 
             doc.text(`Pedido: ${item.Numero_Pedido}`, 50, yPosition);
             doc.text(`Data: ${new Date(item.Data_Pedido).toLocaleDateString('pt-BR')}`, 150, yPosition);
             doc.text(`Vendedor: ${item.Nome_Vendedor}`, 300, yPosition);
-            
+
             yPosition += 15;
-            
+
             doc.text(`Produto: ${item.Nome_Produto}`, 50, yPosition);
             doc.text(`Qtd: ${item.Quantidade_Comprada}`, 300, yPosition);
             doc.text(`Preço: kz(s) ${parseFloat(item.Preco_Unitario).toFixed(2)}`, 350, yPosition);
@@ -759,7 +770,10 @@ router.get("/exportar/compras/comprador/csv", autenticarToken, async (req, res) 
         JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
         JOIN produtos prod ON item.id_produto = prod.id_produtos
         LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
+       JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         WHERE p.id_usuario = ?
+        AND p.estado IN ('Concluído', 'Entregue')
+        AND pag.status_pagamento IN ('pago', 'liberado')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -803,6 +817,10 @@ router.get("/exportar/vendas/pdf", autenticarToken, autorizarUsuario(["Administr
         LEFT JOIN produtos prod ON item.id_produto = prod.id_produtos
         LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
         ORDER BY p.data_pedido DESC;
+        WHERE p.estado IN ('Concluído', 'Entregue')
+        AND pag.status_pagamento IN ('pago', 'liberado')
+        ORDER BY p.data_pedido DESC;
+
     `;
 
     try {
@@ -862,27 +880,30 @@ router.get("/exportar/vendas/pdf", autenticarToken, autorizarUsuario(["Administr
 // Exportar Relatório de Vendas como CSV
 router.get("/exportar/vendas/csv", autenticarToken, autorizarUsuario(["Administrador"]), async (req, res) => {
     const sql = `
-        SELECT 
-            p.id_pedido AS Numero_Pedido,
-            p.data_pedido AS Data_Pedido,
-            p.estado AS Estado,
-            u.nome AS Nome_Usuario,
-            u.email AS Email_Usuario,
-            pag.status_pagamentos AS Status_Pagamento,
-            prod.nome AS Nome_Produto,
-            prod.categoria AS Categoria_Produto,
-            item.quantidade_comprada AS Quantidade_Vendida,
-            item.preco AS Preco_Unitario,
-            (item.quantidade_comprada * item.preco) AS Valor_Total,
-            vendedor.nome AS Nome_Vendedor
-        FROM pedidos p
-        LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-        LEFT JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
-        LEFT JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
-        LEFT JOIN produtos prod ON item.id_produto = prod.id_produtos
-        LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
-        ORDER BY p.data_pedido DESC;
-    `;
+    SELECT 
+        p.id_pedido AS Numero_Pedido,
+        p.data_pedido AS Data_Pedido,
+        p.estado AS Estado,
+        u.nome AS Nome_Usuario,
+        u.email AS Email_Usuario,
+        pag.status_pagamento AS Status_Pagamento,
+        prod.nome AS Nome_Produto,
+        prod.categoria AS Categoria_Produto,
+        item.quantidade_comprada AS Quantidade_Vendida,
+        item.preco AS Preco_Unitario,
+        (item.quantidade_comprada * item.preco) AS Valor_Total,
+        vendedor.nome AS Nome_Vendedor
+    FROM pedidos p
+    LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
+    LEFT JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
+    LEFT JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
+    LEFT JOIN produtos prod ON item.id_produto = prod.id_produtos
+    LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
+    WHERE p.estado IN ('Concluído', 'Entregue')
+    AND pag.status_pagamento IN ('pago', 'liberado')
+    ORDER BY p.data_pedido DESC;
+`;
+
 
     try {
         const [resultados] = await conexao.promise().query(sql);

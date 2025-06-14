@@ -446,6 +446,7 @@ const calcularDivisaoComValidacao = async (
 router.post("/gerar-referencia", autenticarToken, async (req, res) => {
     const {tipo_pagamento,valor_total,carrinho_id  } = req.body;
     const id_usuario = req.usuario.id_usuario;
+    
     const id_vendedor = req.body.id_vendedor || id_usuario; // Se não passar, assume o próprio usuário
     
     if (!id_usuario || !tipo_pagamento || !valor_total) {
@@ -467,7 +468,7 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
         const validacao = await validarCompatibilidadeOperadoras(
             tipo_pagamento, 
             id_vendedor, 
-            id_transportadora
+           
         );
         
         if (!validacao.compativel) {
