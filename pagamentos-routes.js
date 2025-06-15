@@ -28,9 +28,6 @@ const CONFIGURACOES_PLATAFORMA = {
 };
 
 
-
-
-
 const TIPOS_PAGAMENTO = {
     'unitel_money': { 
         nome: 'Unitel Money', 
@@ -67,7 +64,6 @@ const STATUS_PAGAMENTO = {
     CANCELADO: 'cancelado',
     REEMBOLSADO: 'reembolsado'
 };
-
 
 // ========================================
 // FUNÇÃO: GERAR REFERÊNCIA DE PAGAMENTO
@@ -438,7 +434,6 @@ const calcularDivisaoComValidacao = async (
         }
     };
 };
-
 
 // ========================================
 // ROTA: GERAR REFERÊNCIA DE PAGAMENTO
@@ -1477,8 +1472,6 @@ router.post("/processar-reembolso/:id_solicitacao", autenticarToken, async (req,
         });
     }
 });
-
-
 
 router.get("/dashboard-reembolsos", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
