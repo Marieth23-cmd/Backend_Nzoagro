@@ -541,10 +541,11 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
                     p.nome as produto_nome,
                     ip.quantidade_comprada,
                     ip.subtotal,
-                    p.Unidade
+                    e.Unidade
                  FROM produtos p 
                  JOIN usuarios u ON p.id_usuario = u.id_usuario 
                  JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
+                 JOIN estoque e on p.id_produtos = produto_id
                  WHERE p.id_produtos IN (${placeholders}) 
                  AND ip.pedidos_id = ?
                  ORDER BY u.id_usuario, p.nome`,
