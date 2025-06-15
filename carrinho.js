@@ -454,7 +454,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         
         // Verificar se o pedido existe e pertence ao usuário
         const [pedido] = await conexao.promise().query(
-            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'processado'",
+            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'pendente'",
             [id_pedido, id_usuario]
         );
         
