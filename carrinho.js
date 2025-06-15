@@ -1,12 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const conexao = require("./database");
-const { autenticarToken } = require("./mildwaretoken");
+const { autenticarToken ,autorizarUsuario } = require("./mildwaretoken");
 const notificar = require("./utils/notificar");
 
 
 router.use(express.json());
-router.post("/adicionar", autenticarToken, async (req, res) => {
+router.post("/adicionar", autenticarToken,autorizarUsuario(['Agricultor' , 'Fornecedor' , 'Comprador']), async (req, res) => {
     const { id_produto, quantidade, unidade } = req.body;
     const id_usuario = req.usuario.id_usuario;
     
