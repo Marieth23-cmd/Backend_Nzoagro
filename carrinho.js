@@ -525,13 +525,14 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         }
         
         // Pegar itens do pedido
-        const [itensPedido] = await conexao.promise().query(`
-            SELECT ip.*, p.nome, e.quantidade as estoque_atual
-            FROM itens_pedido ip
-            JOIN produtos p ON ip.id_produto = p.id_produtos
-            JOIN estoque e ON e.produto_id = p.id_produtos
-            WHERE ip.pedidos_id = ?
-        `, [id_pedido]);
+        const [itensPedido] = await conexao.promise().query(
+            `SELECT ip.*, p.nome, e.quantidade as estoque_atual
+             FROM itens_pedido ip
+             JOIN produtos p ON ip.id_produto = p.id_produtos
+             JOIN estoque e ON e.produto_id = p.id_produtos
+             WHERE ip.pedidos_id = ?`,
+            [id_pedido]
+        );
         
         // Verificar estoque novamente antes de finalizar
         for (const item of itensPedido) {
@@ -542,103 +543,122 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             }
         }
         
-        // ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
-        await conexao.promise().query(
-            "UPDATE pedidos SET estado = 'processado', data_pagamento = NOW() WHERE id_pedido = ?",
-            [id_pedido]
-        );
-
-        // ATUALIZAR ESTOQUE DOS PRODUTOS
-        for (const item of itensPedido) {
-            const novoEstoque = item.estoque_atual - item.quantidade_comprada;
-            
-            await conexao.promise().query(  
-                "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
-                [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
+        // INICIAR TRANSAÇÃO PARA GARANTIR CONSISTÊNCIA
+        await conexao.promise().beginTransaction();
+        
+        try {
+            // ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
+            await conexao.promise().query(
+                "UPDATE pedidos SET estado = ?, data_pagamento = NOW() WHERE id_pedido = ?",
+                ['processado', id_pedido]
             );
-        }
-        
-        // AGORA SIM - LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
-        await conexao.promise().query(`
-            DELETE ci FROM carrinho_itens ci
-            JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
-            WHERE c.id_usuario = ?
-        `, [id_usuario]);
-        
-        //  NOTIFICAÇÕES APÓS PAGAMENTO CONFIRMADO (COMPRA REAL)
-        
-        // 1 NOTIFICAR VENDEDORES - PERSONALIZADO POR PRODUTO
-        const idsProdutos = itensPedido.map(item => item.id_produto);
-        
-        // Buscar vendedores com seus produtos específicos no pedido
-        const [produtosVendedores] = await conexao.promise().query(
-            `SELECT DISTINCT 
-                u.id_usuario as vendedor_id,
-                u.nome as vendedor_nome,
-                u.tipo_usuario,
-                p.id_produtos,
-                p.nome as produto_nome,
-                ip.quantidade_comprada,
-                ip.subtotal,
-                p.unidade_medida
-             FROM produtos p 
-             JOIN usuarios u ON p.id_usuario = u.id_usuario 
-             JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
-             WHERE p.id_produtos IN (${idsProdutos.map(() => '?').join(',')}) 
-             AND ip.pedidos_id = ?
-             ORDER BY u.id_usuario, p.nome`,
-            [...idsProdutos, id_pedido]
-        );
 
-        // Agrupar produtos por vendedor
-        const vendedoresProdutos = {};
-        produtosVendedores.forEach(item => {
-            if (!vendedoresProdutos[item.vendedor_id]) {
-                vendedoresProdutos[item.vendedor_id] = {
-                    vendedor_nome: item.vendedor_nome,
-                    tipo_usuario: item.tipo_usuario,
-                    produtos: [],
-                    valor_total_vendedor: 0
-                };
+            // ATUALIZAR ESTOQUE DOS PRODUTOS
+            for (const item of itensPedido) {
+                const novoEstoque = item.estoque_atual - item.quantidade_comprada;
+                
+                await conexao.promise().query(  
+                    "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
+                    [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
+                );
             }
             
-            vendedoresProdutos[item.vendedor_id].produtos.push({
-                nome: item.produto_nome,
-                quantidade: item.quantidade_comprada,
-                subtotal: item.subtotal,
-                unidade: item.unidade_medida || 'kg'
-            });
+            // LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
+            await conexao.promise().query(
+                `DELETE ci FROM carrinho_itens ci
+                 JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
+                 WHERE c.id_usuario = ?`,
+                [id_usuario]
+            );
             
-            vendedoresProdutos[item.vendedor_id].valor_total_vendedor += parseFloat(item.subtotal);
-        });
+            // COMMIT DA TRANSAÇÃO
+            await conexao.promise().commit();
+            
+        } catch (transactionError) {
+            // ROLLBACK EM CASO DE ERRO
+            await conexao.promise().rollback();
+            throw transactionError;
+        }
+        
+        // NOTIFICAÇÕES APÓS PAGAMENTO CONFIRMADO (COMPRA REAL)
+        
+        // 1️⃣ NOTIFICAR VENDEDORES - PERSONALIZADO POR PRODUTO
+        const idsProdutos = itensPedido.map(item => item.id_produto);
+        
+        if (idsProdutos.length > 0) {
+            // Criar placeholders para a query IN
+            const placeholders = idsProdutos.map(() => '?').join(',');
+            
+            // Buscar vendedores com seus produtos específicos no pedido
+            const [produtosVendedores] = await conexao.promise().query(
+                `SELECT DISTINCT 
+                    u.id_usuario as vendedor_id,
+                    u.nome as vendedor_nome,
+                    u.tipo_usuario,
+                    p.id_produtos,
+                    p.nome as produto_nome,
+                    ip.quantidade_comprada,
+                    ip.subtotal,
+                    p.unidade_medida
+                 FROM produtos p 
+                 JOIN usuarios u ON p.id_usuario = u.id_usuario 
+                 JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
+                 WHERE p.id_produtos IN (${placeholders}) 
+                 AND ip.pedidos_id = ?
+                 ORDER BY u.id_usuario, p.nome`,
+                [...idsProdutos, id_pedido]
+            );
 
-        // Enviar notificação personalizada para cada vendedor
-        Object.keys(vendedoresProdutos).forEach((vendedor_id) => {
-            const dadosVendedor = vendedoresProdutos[vendedor_id];
-            
-            // Criar mensagem personalizada com os produtos do vendedor
-            let mensagemProdutos = dadosVendedor.produtos.map(produto => 
-                `${produto.nome}: ${produto.quantidade}${produto.unidade}`
-            ).join(', ');
-            
-            const mensagemFinal = `🛒 Novo pedido confirmado! Pedido #${id_pedido} - ${mensagemProdutos}`;
-            
-            io.to(`usuario_${vendedor_id}`).emit("novo_pedido", {
-                message: mensagemFinal,
-                id_pedido,
-                estado: 'processado',
-                valor_vendedor: Math.round(dadosVendedor.valor_total_vendedor),
-                produtos_vendedor: dadosVendedor.produtos,
-                comprador: req.usuario.nome || 'Cliente',
-                data: new Date(),
-                tipo: 'pedido_confirmado'
+            // Agrupar produtos por vendedor
+            const vendedoresProdutos = {};
+            produtosVendedores.forEach(item => {
+                if (!vendedoresProdutos[item.vendedor_id]) {
+                    vendedoresProdutos[item.vendedor_id] = {
+                        vendedor_nome: item.vendedor_nome,
+                        tipo_usuario: item.tipo_usuario,
+                        produtos: [],
+                        valor_total_vendedor: 0
+                    };
+                }
+                
+                vendedoresProdutos[item.vendedor_id].produtos.push({
+                    nome: item.produto_nome,
+                    quantidade: item.quantidade_comprada,
+                    subtotal: item.subtotal,
+                    unidade: item.unidade_medida || 'kg'
+                });
+                
+                vendedoresProdutos[item.vendedor_id].valor_total_vendedor += parseFloat(item.subtotal || 0);
             });
-        });
+
+            // Enviar notificação personalizada para cada vendedor
+            Object.keys(vendedoresProdutos).forEach((vendedor_id) => {
+                const dadosVendedor = vendedoresProdutos[vendedor_id];
+                
+                // Criar mensagem personalizada com os produtos do vendedor
+                let mensagemProdutos = dadosVendedor.produtos.map(produto => 
+                    `${produto.nome}: ${produto.quantidade}${produto.unidade}`
+                ).join(', ');
+                
+                const mensagemFinal = `🛒 Novo pedido confirmado! Pedido #${id_pedido} - ${mensagemProdutos}`;
+                
+                io.to(`usuario_${vendedor_id}`).emit("novo_pedido", {
+                    message: mensagemFinal,
+                    id_pedido,
+                    estado: 'processado',
+                    valor_vendedor: Math.round(dadosVendedor.valor_total_vendedor),
+                    produtos_vendedor: dadosVendedor.produtos,
+                    comprador: req.usuario.nome || 'Cliente',
+                    data: new Date(),
+                    tipo: 'pedido_confirmado'
+                });
+            });
+        }
 
         // 2️⃣ NOTIFICAR ADMINISTRADORES (nova compra na plataforma)
-        const [admins] = await conexao.promise().query(`
-            SELECT id_usuario, nome FROM usuarios WHERE tipo_usuario = 'Administrador'
-        `);
+        const [admins] = await conexao.promise().query(
+            "SELECT id_usuario, nome FROM usuarios WHERE tipo_usuario = 'Administrador'"
+        );
 
         admins.forEach((admin) => {
             io.to(`usuario_${admin.id_usuario}`).emit("novo_pedido", {
@@ -678,7 +698,6 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         });
     }
 });
-
 
 
 
