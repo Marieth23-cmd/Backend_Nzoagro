@@ -541,7 +541,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
                     p.nome as produto_nome,
                     ip.quantidade_comprada,
                     ip.subtotal,
-                    p.unidade_medida
+                    p.Unidade
                  FROM produtos p 
                  JOIN usuarios u ON p.id_usuario = u.id_usuario 
                  JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
@@ -650,3 +650,6 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 
 
 module.exports = router;
+
+
+
