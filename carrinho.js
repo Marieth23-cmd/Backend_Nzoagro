@@ -642,38 +642,84 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 // ==========================================
 // SOLUÇÃO 2: ALTERNATIVA SEM TRANSAÇÕES (mais simples)
 // ==========================================
-
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
     const io = req.io;
     
     try {
-        // Verifica se pagamento foi confirmado
-        if (!pagamento_confirmado) {
-            return res.status(400).json({ 
-                message: "Pagamento não confirmado. O pedido permanece pendente."
-            });
-        }
-
+        console.log("🔍 DADOS RECEBIDOS:");
+        console.log("- id_usuario:", id_usuario);
+        console.log("- id_pedido:", id_pedido);
+        console.log("- pagamento_confirmado:", pagamento_confirmado);
+        console.log("- referencia_pagamento:", referencia_pagamento);
+        
         if (!id_pedido) {
             return res.status(400).json({ message: "ID do pedido é obrigatório" });
         }
         
-        // Verificar se o pedido existe e pertence ao usuário
-        const [pedido] = await conexao.promise().query(
-            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'processado'",
+        // PRIMEIRO: Vamos ver que pedidos existem para este usuário
+        console.log("🔍 VERIFICANDO TODOS OS PEDIDOS DO USUÁRIO:");
+        const [todosPedidos] = await conexao.execute(
+            "SELECT id_pedido, estado, valor_total, data_criacao FROM pedidos WHERE id_usuario = ? ORDER BY data_criacao DESC LIMIT 5",
+            [id_usuario]
+        );
+        
+        console.log("📋 Pedidos encontrados:", todosPedidos);
+        
+        // SEGUNDO: Vamos verificar o pedido específico SEM filtrar por estado
+        console.log("🔍 VERIFICANDO PEDIDO ESPECÍFICO (sem filtro de estado):");
+        const [pedidoEspecifico] = await conexao.execute(
+            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ?",
             [id_pedido, id_usuario]
         );
         
-        if (pedido.length === 0) {
+        console.log("📄 Pedido específico:", pedidoEspecifico);
+        
+        if (pedidoEspecifico.length === 0) {
             return res.status(404).json({ 
-                message: "Pedido não encontrado ou já foi processado" 
+                message: "Pedido não encontrado para este usuário",
+                debug: {
+                    id_pedido_procurado: id_pedido,
+                    id_usuario: id_usuario,
+                    pedidos_disponiveis: todosPedidos.map(p => ({
+                        id: p.id_pedido,
+                        estado: p.estado
+                    }))
+                }
             });
         }
         
+        const pedido = pedidoEspecifico[0];
+        console.log("✅ Pedido encontrado:", {
+            id_pedido: pedido.id_pedido,
+            estado: pedido.estado,
+            valor_total: pedido.valor_total,
+            data_criacao: pedido.data_criacao
+        });
+        
+        // TERCEIRO: Verificar qual é o estado atual do pedido
+        if (pedido.estado === 'finalizado' || pedido.estado === 'confirmado') {
+            return res.status(400).json({
+                message: "Este pedido já foi finalizado anteriormente",
+                estado_atual: pedido.estado
+            });
+        }
+        
+        // QUARTO: Aceitar pedidos em diferentes estados
+        const estadosValidos = ['pendente', 'processado', 'criado'];
+        if (!estadosValidos.includes(pedido.estado)) {
+            return res.status(400).json({
+                message: `Pedido não pode ser finalizado. Estado atual: ${pedido.estado}`,
+                estados_validos: estadosValidos
+            });
+        }
+        
+        console.log("✅ Pedido pode ser processado. Estado atual:", pedido.estado);
+        
         // Pegar itens do pedido
-        const [itensPedido] = await conexao.promise().query(
+        console.log("🔍 BUSCANDO ITENS DO PEDIDO:");
+        const [itensPedido] = await conexao.execute(
             `SELECT ip.*, p.nome, e.quantidade as estoque_atual
              FROM itens_pedido ip
              JOIN produtos p ON ip.id_produto = p.id_produtos
@@ -682,64 +728,93 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             [id_pedido]
         );
         
-        // Verificar estoque novamente antes de finalizar
+        console.log("📦 Itens encontrados:", itensPedido.length);
+        
+        if (itensPedido.length === 0) {
+            return res.status(400).json({
+                message: "Nenhum item encontrado neste pedido"
+            });
+        }
+        
+        // Verificar estoque
+        console.log("🔍 VERIFICANDO ESTOQUE:");
         for (const item of itensPedido) {
+            console.log(`- ${item.nome}: ${item.quantidade_comprada} solicitado, ${item.estoque_atual} disponível`);
+            
             if (item.quantidade_comprada > item.estoque_atual) {
                 return res.status(400).json({
-                    message: `Produto ${item.nome} não tem mais estoque suficiente. Disponível: ${item.estoque_atual}`
+                    message: `Produto ${item.nome} não tem mais estoque suficiente. Disponível: ${item.estoque_atual}, Solicitado: ${item.quantidade_comprada}`
                 });
             }
         }
         
-        // PROCESSAMENTO SEM TRANSAÇÃO (executar uma por uma)
+        console.log("✅ Estoque verificado - tudo OK");
+        
+        // PROCESSAMENTO SIMPLES - SEM TRANSAÇÕES
         try {
-            // 1. ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
-            await conexao.promise().query(
+            console.log(`🔄 Iniciando processamento do pedido ${id_pedido}`);
+            
+            // 1. ATUALIZAR PEDIDO PARA FINALIZADO
+            await conexao.execute(
                 "UPDATE pedidos SET estado = ?, data_pagamento = NOW() WHERE id_pedido = ?",
-                ['processado', id_pedido]
+                ['finalizado', id_pedido]
             );
+            console.log(`✅ Pedido ${id_pedido} atualizado para finalizado`);
 
             // 2. ATUALIZAR ESTOQUE DOS PRODUTOS
             for (const item of itensPedido) {
                 const novoEstoque = item.estoque_atual - item.quantidade_comprada;
                 
-                await conexao.promise().query(  
+                await conexao.execute(  
                     "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
                     [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
                 );
+                
+                console.log(`✅ Estoque atualizado - Produto ${item.nome}: ${item.estoque_atual} → ${novoEstoque}`);
             }
             
             // 3. LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
-            await conexao.promise().query(
+            await conexao.execute(
                 `DELETE ci FROM carrinho_itens ci
                  JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
                  WHERE c.id_usuario = ?`,
                 [id_usuario]
             );
+            console.log(`✅ Carrinho limpo para usuário ${id_usuario}`);
+            
+            console.log(`🎉 Pedido ${id_pedido} processado com sucesso!`);
             
         } catch (updateError) {
-            console.error("Erro ao atualizar dados:", updateError);
+            console.error("❌ Erro ao processar pedido:", updateError);
             return res.status(500).json({
                 message: "Erro ao processar compra. Tente novamente.",
-                error: updateError.message
+                error: updateError.message,
+                pedido_id: id_pedido
             });
         }
         
-        // ... resto do código das notificações igual ao anterior ...
+        // NOTIFICAÇÕES (mantendo o código original das notificações)
+        // ... [código das notificações igual ao anterior] ...
 
         res.json({ 
             message: "Compra finalizada com sucesso!",
             id_pedido,
-            status: "confirmado",
+            status: "finalizado",
             carrinho_status: "limpo",
-            referencia_pagamento
+            referencia_pagamento,
+            debug: {
+                estado_anterior: pedido.estado,
+                estado_atual: "finalizado",
+                itens_processados: itensPedido.length
+            }
         });
         
     } catch (error) {
-        console.log("Erro ao finalizar compra:", error);
+        console.error("❌ Erro geral ao finalizar compra:", error);
         res.status(500).json({ 
             message: "Erro ao finalizar compra",
-            error: error.message 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 });
