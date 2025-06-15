@@ -578,142 +578,6 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
 });
 
 
-// //simular pagamento
-// router.post("/simular-pagamento", autenticarToken, async (req, res) => {
-//     const { referencia } = req.body;
-//     const id_usuario = req.usuario.id_usuario;
-
-//     // Validações básicas
-//     if (!referencia) {
-//         return res.status(400).json({ 
-//             erro: "Referência é obrigatória",
-//             codigo: "REF_OBRIGATORIA"
-//         });
-//     }
-
-//     try {
-//         console.log(`🧪 SIMULAÇÃO - Usuário: ${id_usuario}, Ref: ${referencia}`);
-
-//         // Buscar referência do usuário logado
-//         const [refEncontrada] = await conexao.promise().query(`
-//             SELECT * FROM referencias_pagamento 
-//             WHERE referencia = ? AND id_usuario = ? AND status = 'ativa'
-//         `, [referencia, id_usuario]);
-
-
-
-
-//         if (refEncontrada.length === 0) {
-//             console.log(`❌ Tentativa de uso de referência inválida/já usada: ${referencia}`);
-
-//             return res.status(404).json({ 
-//                 erro: "Referência não encontrada, inválida ou já processada",
-//                 codigo: "REF_NAO_ENCONTRADA",
-//                 dica: "Verifique se a referência está correta e ainda está ativa"
-//             });
-//         }
-
-//         const dadosRef = refEncontrada[0];
-
-//         // Verificar validade (30 minutos)
-//         const agora = new Date();
-//         const criadaEm = new Date(dadosRef.criada_em);
-//         const diffMinutos = (agora - criadaEm) / (1000 * 60);
-        
-//         if (diffMinutos > 30) {
-//             // Expirar automaticamente
-//             await conexao.promise().query(`
-//                 UPDATE referencias_pagamento 
-//                 SET status = 'expirada' 
-//                 WHERE referencia = ?
-//             `, [referencia]);
-
-//             return res.status(400).json({ 
-//                 erro: "Referência expirada (máximo 30 minutos)",
-//                 codigo: "REF_EXPIRADA",
-//                 tempo_restante: 0,
-//                 dica: "Gere uma nova referência para continuar"
-//             });
-//         }
-
-//         // Calcular divisão dos valores
-//         const divisao = await calcularDivisaoValores(
-//             dadosRef.valor_total,
-//             dadosRef.tipo_pagamento,
-//             100, // peso exemplo
-//             false
-//         );
-
-//         // Criar/buscar conta virtual do usuário
-//         const contaVirtual = await criarOuBuscarContaVirtual(id_usuario, 'Agricultor');
-
-//         // Simular recebimento do pagamento
-//         await registrarMovimento(
-//             contaVirtual.id,
-//             'credito',
-//             divisao.valor_liquido_vendedor,
-//             `💰 Pagamento simulado - Ref: ${referencia}`
-//         );
-
-//         // Marcar referência como paga
-//         await conexao.promise().query(`
-//             UPDATE referencias_pagamento 
-//             SET status = 'paga', 
-//                 data_pagamento = NOW(),
-//                 valor_pago = ?,
-//                 transacao_provedor = ?,
-//                 paga_em = NOW()
-//             WHERE referencia = ?
-//         `, [dadosRef.valor_total, `SIM_${Date.now()}`, referencia]);
-
-//         // Processar divisão do dinheiro (se você tem essa função)
-//         try {
-//             await processarDivisaoPagamento(referencia, dadosRef.valor_total);
-//         } catch (error) {
-//             console.log("⚠️ Função processarDivisaoPagamento não encontrada:", error.message);
-//         }
-
-//         console.log(`✅ SIMULAÇÃO CONCLUÍDA - Ref: ${referencia}, Valor: ${dadosRef.valor_total}`);
-
-//         res.json({
-//             sucesso: true,
-//             MODO: "🧪 SIMULAÇÃO",
-//             timestamp: new Date().toISOString(),
-//             pagamento: {
-//                 referencia: referencia,
-//                 valor_original: dadosRef.valor_total,
-//                 valor_pago: dadosRef.valor_total,
-//                 valor_recebido: divisao.valor_liquido_vendedor,
-//                 taxa_aplicada: divisao.taxa_total,
-//                 conta_virtual: {
-//                     id: contaVirtual.id,
-//                     saldo_anterior: contaVirtual.saldo,
-//                     saldo_atual: contaVirtual.saldo + divisao.valor_liquido_vendedor
-//                 },
-//                 divisao_valores: divisao,
-//                 status: 'pago',
-//                 processado_em: new Date().toISOString()
-//             },
-//             mensagem: "💰 Pagamento simulado com sucesso! Valores creditados automaticamente.",
-//             proximos_passos: [
-//                 "Consulte seu saldo atualizado",
-//                 "Verifique o extrato de movimentos",
-//                 "A referência agora está marcada como 'paga'"
-//             ]
-//         });
-
-//     } catch (error) {
-//         console.error("❌ Erro ao simular pagamento:", error);
-//         res.status(500).json({
-//             erro: "Erro interno ao simular pagamento",
-//             codigo: "ERRO_SIMULACAO",
-//             detalhe: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno do servidor',
-//             timestamp: new Date().toISOString()
-//         });
-//     }
-// });
-
-
 router.post("/simular-pagamento", autenticarToken, async (req, res) => {
     const { referencia } = req.body;
     const id_usuario = req.usuario.id_usuario;
@@ -771,7 +635,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         // VERSÃO SIMPLIFICADA - Calcular divisão simples
         const valorTotal = parseFloat(dadosRef.valor_total);
         const taxaPercentual = 5; // 5% de taxa
-        const taxaValor = (valorTotal * taxaPercentual) / 100;
+        const taxaValor = Math.round((valorTotal * taxaPercentual) / 100);
         const valorLiquido = valorTotal - taxaValor;
 
         const divisao = {
@@ -784,13 +648,14 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         console.log("💰 Divisão calculada:", divisao);
 
-        // VERSÃO SIMPLIFICADA - Buscar ou criar conta virtual
+        // VERSÃO CORRIGIDA - Buscar ou criar conta virtual usando estrutura conhecida
         let contaVirtual;
         try {
-            // Primeiro, tentar buscar conta existente
+            // Buscar conta existente do usuário
             const [contasExistentes] = await conexao.promise().query(`
                 SELECT * FROM contas_virtuais 
-                WHERE id_usuario = ? AND ativa = 1
+                WHERE id_usuario = ?
+                ORDER BY id DESC
                 LIMIT 1
             `, [id_usuario]);
 
@@ -798,51 +663,65 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 contaVirtual = contasExistentes[0];
                 console.log("💳 Conta virtual encontrada:", contaVirtual.id);
             } else {
-                // Criar nova conta virtual
-                const numeroContaUnico = `CV${id_usuario}${Date.now()}`;
+                // Criar nova conta virtual usando a estrutura correta
+                const numeroAfricell = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+                const numeroUnitel = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+                
                 const [resultadoConta] = await conexao.promise().query(`
-                    INSERT INTO contas_virtuais (id_usuario, numero_conta, saldo, ativa, criada_em)
-                    VALUES (?, ?, 0.00, 1, NOW())
-                `, [id_usuario, numeroContaUnico]);
+                    INSERT INTO contas_virtuais 
+                    (id_usuario, tipo_conta, saldo, numero_africell, numero_Unitel, operadora)
+                    VALUES (?, 'Agricultor', 0.00, ?, ?, 'Unitel')
+                `, [id_usuario, numeroAfricell, numeroUnitel]);
 
                 contaVirtual = {
                     id: resultadoConta.insertId,
                     id_usuario: id_usuario,
-                    numero_conta: numeroContaUnico,
+                    tipo_conta: 'Agricultor',
                     saldo: 0.00,
-                    ativa: 1
+                    numero_africell: numeroAfricell,
+                    numero_Unitel: numeroUnitel,
+                    operadora: 'Unitel'
                 };
+                
                 console.log("💳 Nova conta virtual criada:", contaVirtual.id);
             }
         } catch (errorConta) {
             console.error("❌ Erro ao buscar/criar conta virtual:", errorConta);
-            throw new Error("Erro ao processar conta virtual");
+            throw new Error("Erro ao processar conta virtual: " + errorConta.message);
         }
 
-        // VERSÃO SIMPLIFICADA - Registrar movimento
+        // VERSÃO CORRIGIDA - Registrar movimento
         try {
             const saldoAnterior = parseFloat(contaVirtual.saldo) || 0;
             const novoSaldo = saldoAnterior + valorLiquido;
 
-            // Inserir movimento
-            await conexao.promise().query(`
-                INSERT INTO movimentos_conta (id_conta_virtual, tipo, valor, descricao, saldo_anterior, saldo_atual, criado_em)
-                VALUES (?, 'credito', ?, ?, ?, ?, NOW())
-            `, [contaVirtual.id, valorLiquido, `💰 Pagamento simulado - Ref: ${referencia}`, saldoAnterior, novoSaldo]);
+            // Registrar movimento na tabela movimentos_contas_virtuais
+            try {
+                await conexao.promise().query(`
+                    INSERT INTO movimentos_contas_virtuais (conta_virtual_id, tipo, valor, descricao, data_movimentacao)
+                    VALUES (?, 'credito', ?, ?, NOW())
+                `, [contaVirtual.id, valorLiquido, `💰 Pagamento simulado - Ref: ${referencia}`]);
+                
+                console.log("💰 Movimento registrado na tabela movimentos_contas_virtuais");
+                
+            } catch (errorMovimento) {
+                console.log("⚠️ Erro ao registrar movimento:", errorMovimento.message);
+                console.log("⚠️ Continuando sem registrar movimento...");
+            }
 
-            // Atualizar saldo da conta
+            // Atualizar saldo da conta virtual
             await conexao.promise().query(`
                 UPDATE contas_virtuais 
-                SET saldo = ?, atualizada_em = NOW()
+                SET saldo = ?
                 WHERE id = ?
             `, [novoSaldo, contaVirtual.id]);
 
             contaVirtual.saldo = novoSaldo;
-            console.log("💰 Movimento registrado. Saldo atualizado:", novoSaldo);
+            console.log("💰 Saldo atualizado para:", novoSaldo);
 
         } catch (errorMovimento) {
             console.error("❌ Erro ao registrar movimento:", errorMovimento);
-            throw new Error("Erro ao registrar movimento na conta");
+            throw new Error("Erro ao registrar movimento na conta: " + errorMovimento.message);
         }
 
         // Marcar referência como paga
@@ -871,7 +750,9 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 taxa_aplicada: taxaValor,
                 conta_virtual: {
                     id: contaVirtual.id,
-                    numero_conta: contaVirtual.numero_conta,
+                    numero_africell: contaVirtual.numero_africell,
+                    numero_unitel: contaVirtual.numero_Unitel,
+                    operadora: contaVirtual.operadora,
                     saldo_anterior: parseFloat(contaVirtual.saldo) - valorLiquido,
                     saldo_atual: parseFloat(contaVirtual.saldo)
                 },
@@ -904,7 +785,6 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         });
     }
 });
-
 
 
 // A Unitel/Africell/Multicaixa chama sua API quando há pagamento
