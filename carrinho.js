@@ -525,12 +525,6 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
                 pedido_id: id_pedido
             });
         }
-        
-        // ... resto do código das notificações permanece igual ...
-        
-        // NOTIFICAÇÕES APÓS PAGAMENTO CONFIRMADO (COMPRA REAL)
-        
-        // 1️⃣ NOTIFICAR VENDEDORES - PERSONALIZADO POR PRODUTO
         const idsProdutos = itensPedido.map(item => item.id_produto);
         
         if (idsProdutos.length > 0) {
@@ -639,6 +633,13 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         });
         
     } catch (error) {
+
+
+        console.error("❌ ERRO GERAL CAPTURADO:");
+        console.error("- Mensagem:", error.message);
+        console.error("- Stack:", error.stack);
+        console.error("- Tipo:", error.constructor.name);
+        
         console.log("Erro ao finalizar compra:", error);
         res.status(500).json({ 
             message: "Erro ao finalizar compra",
