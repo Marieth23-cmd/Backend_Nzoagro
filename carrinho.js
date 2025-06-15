@@ -643,7 +643,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
 // SOLUÇÃO 2: ALTERNATIVA SEM TRANSAÇÕES (mais simples)
 // ==========================================
 
-router.post("/finalizar-compra-v2", autenticarToken, async (req, res) => {
+router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
     const io = req.io;
@@ -743,42 +743,6 @@ router.post("/finalizar-compra-v2", autenticarToken, async (req, res) => {
         });
     }
 });
-
-// ==========================================
-// SOLUÇÃO 3: VERIFICAR CONFIGURAÇÃO DA CONEXÃO
-// ==========================================
-
-// No seu arquivo de configuração da base de dados (db.js ou similar):
-const mysql = require('mysql2');
-
-// Certifique-se de que a conexão está configurada assim:
-const conexao = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    acquireTimeout: 60000,
-    timeout: 60000
-});
-
-// Teste se a conexão suporta transações:
-async function testarTransacao() {
-    try {
-        const connection = await conexao.promise().getConnection();
-        await connection.beginTransaction();
-        console.log("✅ Transações funcionam!");
-        await connection.rollback();
-        connection.release();
-    } catch (error) {
-        console.log("❌ Erro com transações:", error.message);
-    }
-}
-
-module.exports = conexao;
-
 
 
 module.exports = router;
