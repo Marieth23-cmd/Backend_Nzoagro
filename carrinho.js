@@ -664,7 +664,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             io.to(`usuario_${admin.id_usuario}`).emit("novo_pedido", {
                 message: `💰 Nova compra realizada na plataforma! Pedido #${id_pedido}`,
                 id_pedido,
-                estado: 'processado',
+                estado: 'confirmado',
                 valor_total: pedido[0].valor_total,
                 comprador: req.usuario.nome || 'Cliente',
                 data: new Date(),
@@ -676,7 +676,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         io.to(`usuario_${id_usuario}`).emit("compra_finalizada", {
             message: `✅ Compra finalizada com sucesso! Pedido #${id_pedido}`,
             id_pedido,
-            estado: 'processado',
+            estado: 'confirmado',
             valor_total: pedido[0].valor_total,
             data: new Date(),
             tipo: 'compra_finalizada'
@@ -685,7 +685,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         res.json({ 
             message: "Compra finalizada com sucesso!",
             id_pedido,
-            status: "processado",
+            status: "confirmado",
             carrinho_status: "limpo",
             referencia_pagamento
         });
@@ -698,7 +698,6 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         });
     }
 });
-
 
 
 
