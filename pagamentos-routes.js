@@ -69,7 +69,7 @@ const STATUS_PAGAMENTO = {
 // FUNÇÃO: GERAR REFERÊNCIA DE PAGAMENTO
 // ========================================
 const gerarReferenciaPagamento = (valorTotal, metodoPagamento) => {
-    // Prefixos por operadora (mais realista)
+    // Prefixos por operagitdora (mais realista)
     const prefixos = {
         'unitel_money': 'UM',
         'africell_money': 'AM', 
@@ -643,7 +643,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         console.log("💰 Divisão calculada:", divisao);
 
-        // VERSÃO CORRIGIDA - Buscar ou criar conta virtual usando estrutura conhecida
+        // VERSÃO COMPLETAMENTE CORRIGIDA - Buscar ou criar conta virtual
         let contaVirtual;
         try {
             // Buscar conta existente do usuário
@@ -658,19 +658,29 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 contaVirtual = contasExistentes[0];
                 console.log("💳 Conta virtual encontrada:", contaVirtual.id);
             } else {
-                // Criar nova conta virtual usando a estrutura correta
+                // Criar nova conta virtual incluindo TODOS os campos NOT NULL
                 const numeroAfricell = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
                 const numeroUnitel = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
                 
+                // Incluir todos os campos obrigatórios (NOT NULL)
                 const [resultadoConta] = await conexao.promise().query(`
                     INSERT INTO contas_virtuais 
-                    (id_usuario, tipo_conta, saldo, numero_africell, numero_Unitel, operadora)
-                    VALUES (?, 'Agricultor', 0.00, ?, ?, 'Unitel')
-                `, [id_usuario, numeroAfricell, numeroUnitel]);
+                    (id_usuario, transportadora_id, tipo_conta, saldo, numero_africell, numero_Unitel, operadora)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    id_usuario,           // id_usuario (NOT NULL)
+                    1,                   // transportadora_id (NOT NULL) - usando ID 1 como padrão
+                    'Agricultor',        // tipo_conta 
+                    0.00,               // saldo (tem padrão 0.00)
+                    numeroAfricell,     // numero_africell (NOT NULL)
+                    numeroUnitel,       // numero_Unitel (NOT NULL)
+                    'Unitel'           // operadora (NOT NULL)
+                ]);
 
                 contaVirtual = {
                     id: resultadoConta.insertId,
                     id_usuario: id_usuario,
+                    transportadora_id: 1,
                     tipo_conta: 'Agricultor',
                     saldo: 0.00,
                     numero_africell: numeroAfricell,
@@ -682,6 +692,9 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
             }
         } catch (errorConta) {
             console.error("❌ Erro ao buscar/criar conta virtual:", errorConta);
+            console.error("❌ Detalhes do erro:", errorConta.message);
+            console.error("❌ SQL Error Code:", errorConta.code);
+            console.error("❌ SQL Error Number:", errorConta.errno);
             throw new Error("Erro ao processar conta virtual: " + errorConta.message);
         }
 
@@ -733,6 +746,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         console.log(`✅ SIMULAÇÃO CONCLUÍDA - Ref: ${referencia}, Valor: ${dadosRef.valor_total}`);
 
+        // RESPOSTA COMPLETA COM TODOS OS DADOS NECESSÁRIOS
         res.json({
             sucesso: true,
             MODO: "🧪 SIMULAÇÃO",
@@ -745,23 +759,57 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 taxa_aplicada: taxaValor,
                 conta_virtual: {
                     id: contaVirtual.id,
+                    transportadora_id: contaVirtual.transportadora_id,
+                    tipo_conta: contaVirtual.tipo_conta,
                     numero_africell: contaVirtual.numero_africell,
                     numero_unitel: contaVirtual.numero_Unitel,
                     operadora: contaVirtual.operadora,
-                    saldo_anterior: parseFloat(contaVirtual.saldo) - valorLiquido,
+                    saldo_anterior: saldoAnterior,
                     saldo_atual: parseFloat(contaVirtual.saldo)
                 },
                 divisao_valores: divisao,
                 status: 'pago',
                 transacao_id: transacaoId,
-                processado_em: new Date().toISOString()
+                processado_em: new Date().toISOString(),
+                // DADOS COMPLETOS PARA SIMULAÇÃO
+                dados_simulacao: {
+                    metodo_pagamento: 'unitel_money',
+                    telefone_simulado: contaVirtual.numero_Unitel,
+                    operadora_usada: contaVirtual.operadora,
+                    tipo_transacao: 'pagamento_simulado',
+                    tempo_processamento: '2.3s',
+                    codigo_confirmacao: `CONF_${Math.random().toString(36).substr(2, 8).toUpperCase()}`,
+                    hash_transacao: `HASH_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`
+                }
             },
             mensagem: "💰 Pagamento simulado com sucesso! Valores creditados automaticamente.",
             proximos_passos: [
                 "Consulte seu saldo atualizado",
-                "Verifique o extrato de movimentos",
-                "A referência agora está marcada como 'paga'"
-            ]
+                "Verifique o extrato de movimentos", 
+                "A referência agora está marcada como 'paga'",
+                "Use os dados da conta virtual para próximas transações"
+            ],
+            // INFORMAÇÕES TÉCNICAS PARA DEBUG
+            debug_info: {
+                referencia_dados: {
+                    id_referencia: dadosRef.id,
+                    criada_em: dadosRef.criada_em,
+                    tempo_restante_minutos: Math.max(0, 30 - Math.floor(diffMinutos)),
+                    valor_original: dadosRef.valor_total
+                },
+                conta_virtual_dados: {
+                    conta_criada_agora: contasExistentes.length === 0,
+                    saldo_antes: saldoAnterior,
+                    saldo_depois: parseFloat(contaVirtual.saldo),
+                    credito_aplicado: valorLiquido
+                },
+                calculo_taxas: {
+                    valor_bruto: valorTotal,
+                    percentual_taxa: taxaPercentual,
+                    valor_taxa: taxaValor,
+                    valor_liquido: valorLiquido
+                }
+            }
         });
 
     } catch (error) {
@@ -780,7 +828,6 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         });
     }
 });
-
 
 // A Unitel/Africell/Multicaixa chama sua API quando há pagamento
 router.post("/webhook/pagamento-confirmado", async (req, res) => {
