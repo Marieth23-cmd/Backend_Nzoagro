@@ -572,6 +572,8 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
     }
 });
 
+
+
 router.post("/simular-pagamento", autenticarToken, async (req, res) => {
     const { referencia } = req.body;
     const id_usuario = req.usuario.id_usuario;
@@ -644,14 +646,17 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         // VERSÃO COMPLETAMENTE CORRIGIDA - Buscar ou criar conta virtual
         let contaVirtual;
+        let contasExistentes = []; // Declarar a variável aqui
         try {
             // Buscar conta existente do usuário
-            const [contasExistentes] = await conexao.promise().query(`
+            const resultadoContas = await conexao.promise().query(`
                 SELECT * FROM contas_virtuais 
                 WHERE id_usuario = ?
                 ORDER BY id DESC
                 LIMIT 1
             `, [id_usuario]);
+            
+            contasExistentes = resultadoContas[0]; // Atribuir o resultado
 
             if (contasExistentes.length > 0) {
                 contaVirtual = contasExistentes[0];
@@ -754,12 +759,14 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         // Tentar criar um registro na tabela de pagamentos se ela existir
         try {
             // Verificar se conseguimos inserir na tabela pagamentos
+            // Incluir id_pedido que é obrigatório
             const [resultadoPagamento] = await conexao.promise().query(`
                 INSERT INTO pagamentos 
-                (id_comprador, id_vendedor, tipo_pagamento, telefone_pagador, transacao_id, 
+                (id_pedido, id_comprador, id_vendedor, tipo_pagamento, telefone_pagador, transacao_id, 
                  referencia_pagamento, valor_bruto, valor_taxa, valor_liquido, status_pagamento)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
+                dadosRef.carrinho_id || 0,  // id_pedido (usando carrinho_id ou 0 como fallback)
                 id_usuario,           // id_comprador
                 dadosRef.id_usuario,  // id_vendedor (mesmo usuário na simulação)
                 'unitel_money',       // tipo_pagamento
@@ -865,51 +872,6 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 });
 
 
-// A Unitel/Africell/Multicaixa chama sua API quando há pagamento
-router.post("/webhook/pagamento-confirmado", async (req, res) => {
-    const { 
-        referencia, 
-        valor_pago, 
-        status, 
-        transacao_id_provedor,
-        timestamp 
-    } = req.body;
-    
-    // Validar se é mesmo da provedora (assinatura/token)
-    if (!validarAssinaturaWebhook(req)) {
-        return res.status(401).json({ erro: "Não autorizado" });
-    }
-    
-    try {
-        // Buscar referência
-        const [ref] = await conexao.promise().query(`
-            SELECT * FROM referencias_pagamento 
-            WHERE referencia = ? AND status = 'ativa'
-        `, [referencia]);
-        
-        if (ref.length === 0) {
-            return res.status(404).json({ erro: "Referência não encontrada" });
-        }
-        
-        // MARCAR como PAGA e EXPIRAR
-        await conexao.promise().query(`
-            UPDATE referencias_pagamento 
-            SET status = 'paga', 
-                valor_pago = ?, 
-                transacao_provedor = ?,
-                paga_em = NOW()
-            WHERE referencia = ?
-        `, [valor_pago, transacao_id_provedor, referencia]);
-        
-        // Processar divisão do dinheiro
-        await processarDivisaoPagamento(referencia, valor_pago);
-        
-        res.json({ sucesso: true, processado: true });
-        
-    } catch (error) {
-        res.status(500).json({ erro: "Erro no processamento" });
-    }
-});
 // ========================================
 // ROTA: CONFIRMAR ENTREGA E DISTRIBUIR VALORES
 // ========================================
