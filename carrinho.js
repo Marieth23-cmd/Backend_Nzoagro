@@ -489,7 +489,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             
             // 1. ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
             await conexao.promise().query(
-                "UPDATE pedidos SET estado = ?, data_pagamento = NOW() WHERE id_pedido = ?",
+                "UPDATE pedidos SET estado = ?, data_confirmacao = NOW() WHERE id_pedido = ?",
                 ['processado', id_pedido]
             );
             console.log(`✅ Pedido ${id_pedido} atualizado para processado`);
