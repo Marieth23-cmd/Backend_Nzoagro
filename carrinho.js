@@ -423,7 +423,7 @@ router.post("/iniciar-checkout", autenticarToken, async (req, res) => {
 
 
 
-// SOLUÇÃO 1: Usar getConnection() para obter uma conexão específica
+
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
@@ -488,7 +488,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             console.log(`🔄 Iniciando processamento do pedido ${id_pedido}`);
             
             // 1. ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
-            await conexao.execute(
+            await conexao.promise().query(
                 "UPDATE pedidos SET estado = ?, data_pagamento = NOW() WHERE id_pedido = ?",
                 ['processado', id_pedido]
             );
@@ -498,7 +498,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             for (const item of itensPedido) {
                 const novoEstoque = item.estoque_atual - item.quantidade_comprada;
                 
-                await conexao.execute(  
+                await conexao.promise().query(  
                     "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
                     [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
                 );
@@ -507,7 +507,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             }
             
             // 3. LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
-            await conexao.execute(
+            await conexao.promise().query(
                 `DELETE ci FROM carrinho_itens ci
                  JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
                  WHERE c.id_usuario = ?`,
