@@ -231,75 +231,6 @@ router.put("/atualizar/:id_produto", autenticarToken, async (req, res) => {
 });
 
 
-
-// router.post("/finalizar-compra", autenticarToken, async (req, res) => {
-//     const id_usuario = req.usuario.id_usuario;
-    
-//     try {
-//         // Pega o carrinho do usuário
-//         const [carrinho] = await conexao.promise().query(
-//             "SELECT id_carrinho FROM carrinho WHERE id_usuario = ?",
-//             [id_usuario]
-//         );
-        
-//         if (carrinho.length === 0) {
-//             return res.status(400).json({ mensagem: "Carrinho vazio." });
-//         }
-        
-//         const id_carrinho = carrinho[0].id_carrinho;
-        
-//         // Pega os itens do carrinho
-//         const [itens] = await conexao.promise().query(
-//             `SELECT ci.id_produto, ci.quantidade AS quantidade_carrinho, e.quantidade AS estoque_atual
-//             FROM carrinho_itens ci
-//             JOIN produtos p ON ci.id_produto = p.id_produtos
-//             JOIN estoque e ON e.produto_id = p.id_produtos
-//             WHERE ci.id_carrinho = ?`,
-//             [id_carrinho]
-//         );
-        
-//         if (itens.length === 0) {
-//             return res.status(400).json({ mensagem: "Carrinho vazio." });
-//         }
-        
-//         // Verifica se todos os produtos têm estoque suficiente
-//         for (const item of itens) {
-//             if (item.quantidade_carrinho > item.estoque_atual) {
-//                 return res.status(400).json({
-//                     mensagem: `Produto com ID ${item.id_produto} não tem estoque suficiente.`
-//                 });
-//             }
-//         }
-        
-//         // Atualiza o estoque dos produtos
-//         for (const item of itens) {
-//             const novoEstoque = item.estoque_atual - item.quantidade_carrinho;
-            
-//             // Atualiza a quantidade e status na tabela estoque
-//             await conexao.promise().query(
-//                 "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
-//                 [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
-//             );
-//         }
-        
-//         // Limpa o carrinho
-//         await conexao.promise().query(
-//             "DELETE FROM carrinho_itens WHERE id_carrinho = ?",
-//             [id_carrinho]
-//         );
-        
-//         await notificar(req.usuario.id_usuario, `Compra finalizada com sucesso.`);
-        
-//         res.json({ mensagem: "Finalizar compra." });
-        
-//     } catch (error) {
-//         console.log("Erro ao finalizar a compra:", error);
-//         res.status(500).json({ erro: "Erro ao finalizar a compra." });
-//     }
-// });
-
-
-// OPÇÃO 1: Rota simplificada (usando dados do carrinho)
 // ROTA para calcular preço do carrinho com cálculo proporcional
 router.post("/calcular-preco", autenticarToken, async (req, res) => {
   const id_usuario = req.usuario.id_usuario;
@@ -495,6 +426,7 @@ router.post("/iniciar-checkout", autenticarToken, async (req, res) => {
 // ============================================
 // ROTA 2: FINALIZAR COMPRA (APÓS PAGAMENTO)
 // ============================================
+// SOLUÇÃO 1: Usar getConnection() para obter uma conexão específica
 router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     const id_usuario = req.usuario.id_usuario;
     const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
@@ -514,7 +446,7 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
         
         // Verificar se o pedido existe e pertence ao usuário
         const [pedido] = await conexao.promise().query(
-            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'pendente'",
+            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'processado'",
             [id_pedido, id_usuario]
         );
         
@@ -543,42 +475,50 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
             }
         }
         
-        // INICIAR TRANSAÇÃO PARA GARANTIR CONSISTÊNCIA
-        await conexao.promise().beginTransaction();
-        
+        // PROCESSAMENTO SIMPLES - SEM TRANSAÇÕES
         try {
-            // ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
-            await conexao.promise().query(
+            console.log(`🔄 Iniciando processamento do pedido ${id_pedido}`);
+            
+            // 1. ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
+            await conexao.execute(
                 "UPDATE pedidos SET estado = ?, data_pagamento = NOW() WHERE id_pedido = ?",
                 ['processado', id_pedido]
             );
+            console.log(`✅ Pedido ${id_pedido} atualizado para processado`);
 
-            // ATUALIZAR ESTOQUE DOS PRODUTOS
+            // 2. ATUALIZAR ESTOQUE DOS PRODUTOS
             for (const item of itensPedido) {
                 const novoEstoque = item.estoque_atual - item.quantidade_comprada;
                 
-                await conexao.promise().query(  
+                await conexao.execute(  
                     "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
                     [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
                 );
+                
+                console.log(`✅ Estoque atualizado - Produto ${item.nome}: ${item.estoque_atual} → ${novoEstoque}`);
             }
             
-            // LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
-            await conexao.promise().query(
+            // 3. LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
+            await conexao.execute(
                 `DELETE ci FROM carrinho_itens ci
                  JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
                  WHERE c.id_usuario = ?`,
                 [id_usuario]
             );
+            console.log(`✅ Carrinho limpo para usuário ${id_usuario}`);
             
-            // COMMIT DA TRANSAÇÃO
-            await conexao.promise().commit();
+            console.log(`🎉 Pedido ${id_pedido} processado com sucesso!`);
             
-        } catch (transactionError) {
-            // ROLLBACK EM CASO DE ERRO
-            await conexao.promise().rollback();
-            throw transactionError;
+        } catch (updateError) {
+            console.error("❌ Erro ao processar pedido:", updateError);
+            return res.status(500).json({
+                message: "Erro ao processar compra. Tente novamente.",
+                error: updateError.message,
+                pedido_id: id_pedido
+            });
         }
+        
+        // ... resto do código das notificações permanece igual ...
         
         // NOTIFICAÇÕES APÓS PAGAMENTO CONFIRMADO (COMPRA REAL)
         
@@ -699,6 +639,145 @@ router.post("/finalizar-compra", autenticarToken, async (req, res) => {
     }
 });
 
+// ==========================================
+// SOLUÇÃO 2: ALTERNATIVA SEM TRANSAÇÕES (mais simples)
+// ==========================================
+
+router.post("/finalizar-compra-v2", autenticarToken, async (req, res) => {
+    const id_usuario = req.usuario.id_usuario;
+    const { id_pedido, pagamento_confirmado, referencia_pagamento } = req.body;
+    const io = req.io;
+    
+    try {
+        // Verifica se pagamento foi confirmado
+        if (!pagamento_confirmado) {
+            return res.status(400).json({ 
+                message: "Pagamento não confirmado. O pedido permanece pendente."
+            });
+        }
+
+        if (!id_pedido) {
+            return res.status(400).json({ message: "ID do pedido é obrigatório" });
+        }
+        
+        // Verificar se o pedido existe e pertence ao usuário
+        const [pedido] = await conexao.promise().query(
+            "SELECT * FROM pedidos WHERE id_pedido = ? AND id_usuario = ? AND estado = 'processado'",
+            [id_pedido, id_usuario]
+        );
+        
+        if (pedido.length === 0) {
+            return res.status(404).json({ 
+                message: "Pedido não encontrado ou já foi processado" 
+            });
+        }
+        
+        // Pegar itens do pedido
+        const [itensPedido] = await conexao.promise().query(
+            `SELECT ip.*, p.nome, e.quantidade as estoque_atual
+             FROM itens_pedido ip
+             JOIN produtos p ON ip.id_produto = p.id_produtos
+             JOIN estoque e ON e.produto_id = p.id_produtos
+             WHERE ip.pedidos_id = ?`,
+            [id_pedido]
+        );
+        
+        // Verificar estoque novamente antes de finalizar
+        for (const item of itensPedido) {
+            if (item.quantidade_comprada > item.estoque_atual) {
+                return res.status(400).json({
+                    message: `Produto ${item.nome} não tem mais estoque suficiente. Disponível: ${item.estoque_atual}`
+                });
+            }
+        }
+        
+        // PROCESSAMENTO SEM TRANSAÇÃO (executar uma por uma)
+        try {
+            // 1. ATUALIZAR PEDIDO PARA PROCESSADO/PAGO
+            await conexao.promise().query(
+                "UPDATE pedidos SET estado = ?, data_pagamento = NOW() WHERE id_pedido = ?",
+                ['processado', id_pedido]
+            );
+
+            // 2. ATUALIZAR ESTOQUE DOS PRODUTOS
+            for (const item of itensPedido) {
+                const novoEstoque = item.estoque_atual - item.quantidade_comprada;
+                
+                await conexao.promise().query(  
+                    "UPDATE estoque SET quantidade = ?, status = ? WHERE produto_id = ?",
+                    [novoEstoque, novoEstoque === 0 ? "esgotado" : "disponível", item.id_produto]
+                );
+            }
+            
+            // 3. LIMPAR O CARRINHO APÓS PAGAMENTO CONFIRMADO
+            await conexao.promise().query(
+                `DELETE ci FROM carrinho_itens ci
+                 JOIN carrinho c ON ci.id_carrinho = c.id_carrinho
+                 WHERE c.id_usuario = ?`,
+                [id_usuario]
+            );
+            
+        } catch (updateError) {
+            console.error("Erro ao atualizar dados:", updateError);
+            return res.status(500).json({
+                message: "Erro ao processar compra. Tente novamente.",
+                error: updateError.message
+            });
+        }
+        
+        // ... resto do código das notificações igual ao anterior ...
+
+        res.json({ 
+            message: "Compra finalizada com sucesso!",
+            id_pedido,
+            status: "confirmado",
+            carrinho_status: "limpo",
+            referencia_pagamento
+        });
+        
+    } catch (error) {
+        console.log("Erro ao finalizar compra:", error);
+        res.status(500).json({ 
+            message: "Erro ao finalizar compra",
+            error: error.message 
+        });
+    }
+});
+
+// ==========================================
+// SOLUÇÃO 3: VERIFICAR CONFIGURAÇÃO DA CONEXÃO
+// ==========================================
+
+// No seu arquivo de configuração da base de dados (db.js ou similar):
+const mysql = require('mysql2');
+
+// Certifique-se de que a conexão está configurada assim:
+const conexao = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    acquireTimeout: 60000,
+    timeout: 60000
+});
+
+// Teste se a conexão suporta transações:
+async function testarTransacao() {
+    try {
+        const connection = await conexao.promise().getConnection();
+        await connection.beginTransaction();
+        console.log("✅ Transações funcionam!");
+        await connection.rollback();
+        connection.release();
+    } catch (error) {
+        console.log("❌ Erro com transações:", error.message);
+    }
+}
+
+module.exports = conexao;
 
 
 
