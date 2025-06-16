@@ -804,7 +804,7 @@ router.get("/exportar/vendas/pdf", autenticarToken, autorizarUsuario(["Administr
             p.data_pedido AS Data_Pedido,
             p.estado AS Estado,
             u.nome AS Nome_Usuario,
-            pag.status_pagamentos AS Status_Pagamento,
+            pag.status_pagamento AS Status_Pagamento,
             prod.nome AS Nome_Produto,
             item.quantidade_comprada AS Quantidade_Vendida,
             item.preco AS Preco_Unitario,

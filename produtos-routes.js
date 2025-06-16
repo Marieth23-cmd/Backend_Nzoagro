@@ -12,16 +12,7 @@ router.post("/produtos",autenticarToken,autorizarUsuario(["Agricultor", "Fornece
   upload.single("foto_produto"), // Agora deve funcionar corretamente
   async (req, res) => {
     try {
-      const {
-        nome,
-        descricao,
-        preco,
-        categoria,
-        provincia,
-        quantidade,
-        Unidade, 
-        peso_kg,
-      } = req.body;
+      const {nome,descricao,preco,categoria,provincia,quantidade,Unidade, peso_kg} = req.body;
 
       const id_usuario = req.usuario.id_usuario;
 

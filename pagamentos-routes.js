@@ -574,8 +574,307 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
 
 
 
+// router.post("/simular-pagamento", autenticarToken, async (req, res) => {
+//     const { referencia } = req.body;
+//     const id_usuario = req.usuario.id_usuario;
+
+//     // Validações básicas
+//     if (!referencia) {
+//         return res.status(400).json({ 
+//             erro: "Referência é obrigatória",
+//             codigo: "REF_OBRIGATORIA"
+//         });
+//     }
+
+//     try {
+//         console.log(`🧪 SIMULAÇÃO - Usuário: ${id_usuario}, Ref: ${referencia}`);
+
+//         // Buscar referência do usuário logado
+//         const [refEncontrada] = await conexao.promise().query(`
+//             SELECT * FROM referencias_pagamento 
+//             WHERE referencia = ? AND id_usuario = ? AND status = 'ativa'
+//         `, [referencia, id_usuario]);
+
+//         if (refEncontrada.length === 0) {
+//             console.log(`❌ Tentativa de uso de referência inválida/já usada: ${referencia}`);
+//             return res.status(404).json({ 
+//                 erro: "Referência não encontrada, inválida ou já processada",
+//                 codigo: "REF_NAO_ENCONTRADA",
+//                 dica: "Verifique se a referência está correta e ainda está ativa"
+//             });
+//         }
+
+//         const dadosRef = refEncontrada[0];
+//         console.log("📋 Dados da referência encontrada:", dadosRef);
+
+//         // Verificar validade (30 minutos)
+//         const agora = new Date();
+//         const criadaEm = new Date(dadosRef.criada_em);
+//         const diffMinutos = (agora - criadaEm) / (1000 * 60);
+        
+//         if (diffMinutos > 30) {
+//             // Expirar automaticamente
+//             await conexao.promise().query(`
+//                 UPDATE referencias_pagamento 
+//                 SET status = 'expirada' 
+//                 WHERE referencia = ?
+//             `, [referencia]);
+
+//             return res.status(400).json({ 
+//                 erro: "Referência expirada (máximo 30 minutos)",
+//                 codigo: "REF_EXPIRADA",
+//                 tempo_restante: 0,
+//                 dica: "Gere uma nova referência para continuar"
+//             });
+//         }
+
+//         // VERSÃO SIMPLIFICADA - Calcular divisão simples
+//         const valorTotal = parseFloat(dadosRef.valor_total);
+//         const taxaPercentual = 5; // 5% de taxa
+//         const taxaValor = Math.round((valorTotal * taxaPercentual) / 100);
+//         const valorLiquido = valorTotal - taxaValor;
+
+//         const divisao = {
+//             valor_total: valorTotal,
+//             taxa_percentual: taxaPercentual,
+//             taxa_valor: taxaValor,
+//             valor_liquido_vendedor: valorLiquido,
+//             taxa_total: taxaValor
+//         };
+
+//         console.log("💰 Divisão calculada:", divisao);
+
+//         // VERSÃO COMPLETAMENTE CORRIGIDA - Buscar ou criar conta virtual
+//         let contaVirtual;
+//         let contasExistentes = []; // Declarar a variável aqui
+//         try {
+//             // Buscar conta existente do usuário
+//             const resultadoContas = await conexao.promise().query(`
+//                 SELECT * FROM contas_virtuais 
+//                 WHERE id_usuario = ?
+//                 ORDER BY id DESC
+//                 LIMIT 1
+//             `, [id_usuario]);
+            
+//             contasExistentes = resultadoContas[0]; // Atribuir o resultado
+
+//             if (contasExistentes.length > 0) {
+//                 contaVirtual = contasExistentes[0];
+//                 console.log("💳 Conta virtual encontrada:", contaVirtual.id);
+//             } else {
+//                 // Criar nova conta virtual incluindo TODOS os campos NOT NULL
+//                 const numeroAfricell = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+//                 const numeroUnitel = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+                
+//                 // Incluir todos os campos obrigatórios (NOT NULL)
+//                 const [resultadoConta] = await conexao.promise().query(`
+//                     INSERT INTO contas_virtuais 
+//                     (id_usuario, transportadora_id, tipo_conta, saldo, numero_africell, numero_Unitel, operadora)
+//                     VALUES (?, ?, ?, ?, ?, ?, ?)
+//                 `, [
+//                     id_usuario,           // id_usuario (NOT NULL)
+//                     1,                   // transportadora_id (NOT NULL) - usando ID 1 como padrão
+//                     'Agricultor',        // tipo_conta 
+//                     0.00,               // saldo (tem padrão 0.00)
+//                     numeroAfricell,     // numero_africell (NOT NULL)
+//                     numeroUnitel,       // numero_Unitel (NOT NULL)
+//                     'Unitel'           // operadora (NOT NULL)
+//                 ]);
+
+//                 contaVirtual = {
+//                     id: resultadoConta.insertId,
+//                     id_usuario: id_usuario,
+//                     transportadora_id: 1,
+//                     tipo_conta: 'Agricultor',
+//                     saldo: 0.00,
+//                     numero_africell: numeroAfricell,
+//                     numero_Unitel: numeroUnitel,
+//                     operadora: 'Unitel'
+//                 };
+                
+//                 console.log("💳 Nova conta virtual criada:", contaVirtual.id);
+//             }
+//         } catch (errorConta) {
+//             console.error("❌ Erro ao buscar/criar conta virtual:", errorConta);
+//             console.error("❌ Detalhes do erro:", errorConta.message);
+//             console.error("❌ SQL Error Code:", errorConta.code);
+//             console.error("❌ SQL Error Number:", errorConta.errno);
+//             throw new Error("Erro ao processar conta virtual: " + errorConta.message);
+//         }
+
+//         // VERSÃO CORRIGIDA - Registrar movimento
+//         const saldoAnterior = parseFloat(contaVirtual.saldo) || 0;
+//         const novoSaldo = saldoAnterior + valorLiquido;
+
+//         try {
+//             // Tentar registrar movimento apenas se a tabela existir
+//             try {
+//                 // Registrar movimento na tabela correta: movimentacoes_conta_virtual
+//                 await conexao.promise().query(`
+//                     INSERT INTO movimentacoes_conta_virtual (conta_virtual_id, tipo, valor, descricao)
+//                     VALUES (?, 'credito', ?, ?)
+//                 `, [contaVirtual.id, valorLiquido, `💰 Pagamento simulado - Ref: ${referencia}`]);
+                
+//                 console.log("💰 Movimento registrado na tabela movimentacoes_conta_virtual");
+                
+//             } catch (errorMovimento) {
+//                 console.log("⚠️ Erro ao registrar movimento:", errorMovimento.message);
+//                 console.log("⚠️ Continuando sem registrar movimento...");
+//             }
+
+//             // Atualizar saldo da conta virtual
+//             await conexao.promise().query(`
+//                 UPDATE contas_virtuais 
+//                 SET saldo = ?
+//                 WHERE id = ?
+//             `, [novoSaldo, contaVirtual.id]);
+
+//             contaVirtual.saldo = novoSaldo;
+//             console.log("💰 Saldo atualizado para:", novoSaldo);
+
+//         } catch (errorMovimento) {
+//             console.error("❌ Erro ao registrar movimento:", errorMovimento);
+//             throw new Error("Erro ao registrar movimento na conta: " + errorMovimento.message);
+//         }
+
+//         // CORREÇÃO PRINCIPAL: Usar apenas campos que existem na tabela
+//         const transacaoId = `SIM_${Date.now()}`;
+        
+//         // Primeiro, vamos verificar quais campos existem na tabela referencias_pagamento
+//         try {
+//             // Tentativa com campos básicos que provavelmente existem
+//             await conexao.promise().query(`
+//                 UPDATE referencias_pagamento 
+//                 SET status = 'paga'
+//                 WHERE referencia = ?
+//             `, [referencia]);
+            
+//             console.log(`✅ Status da referência atualizado para 'paga'`);
+            
+//         } catch (errorUpdate) {
+//             console.error("❌ Erro ao atualizar referência:", errorUpdate);
+//             // Continuar mesmo se não conseguir atualizar
+//         }
+
+//         // Tentar criar um registro na tabela de pagamentos se ela existir
+//         try {
+//             // Verificar se conseguimos inserir na tabela pagamentos
+//             // Incluir id_pedido que é obrigatório
+//             const [resultadoPagamento] = await conexao.promise().query(`
+//                 INSERT INTO pagamentos 
+//                 (id_pedido, id_comprador, id_vendedor, tipo_pagamento, telefone_pagador, transacao_id, 
+//                  referencia_pagamento, valor_bruto, valor_taxa, valor_liquido, status_pagamento)
+//                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+//             `, [
+//                 dadosRef.carrinho_id || 0,  // id_pedido (usando carrinho_id ou 0 como fallback)
+//                 id_usuario,           // id_comprador
+//                 dadosRef.id_usuario,  // id_vendedor (mesmo usuário na simulação)
+//                 'unitel_money',       // tipo_pagamento
+//                 contaVirtual.numero_Unitel, // telefone_pagador
+//                 transacaoId,          // transacao_id
+//                 referencia,           // referencia_pagamento
+//                 valorTotal,           // valor_bruto
+//                 taxaValor,            // valor_taxa
+//                 valorLiquido,         // valor_liquido
+//                 'pago'                // status_pagamento
+//             ]);
+            
+//             console.log("💰 Pagamento registrado na tabela pagamentos, ID:", resultadoPagamento.insertId);
+            
+//         } catch (errorPagamento) {
+//             console.log("⚠️ Erro ao registrar pagamento:", errorPagamento.message);
+//             console.log("⚠️ Continuando sem registrar na tabela pagamentos...");
+//         }
+
+//         console.log(`✅ SIMULAÇÃO CONCLUÍDA - Ref: ${referencia}, Valor: ${dadosRef.valor_total}`);
+
+//         // RESPOSTA COMPLETA COM TODOS OS DADOS NECESSÁRIOS
+//         res.json({
+//             sucesso: true,
+//             MODO: "🧪 SIMULAÇÃO",
+//             timestamp: new Date().toISOString(),
+//             pagamento: {
+//                 referencia: referencia,
+//                 valor_original: valorTotal,
+//                 valor_pago: valorTotal,
+//                 valor_recebido: valorLiquido,
+//                 taxa_aplicada: taxaValor,
+//                 conta_virtual: {
+//                     id: contaVirtual.id,
+//                     transportadora_id: contaVirtual.transportadora_id,
+//                     tipo_conta: contaVirtual.tipo_conta,
+//                     numero_africell: contaVirtual.numero_africell,
+//                     numero_unitel: contaVirtual.numero_Unitel,
+//                     operadora: contaVirtual.operadora,
+//                     saldo_anterior: saldoAnterior,
+//                     saldo_atual: parseFloat(contaVirtual.saldo)
+//                 },
+//                 divisao_valores: divisao,
+//                 status: 'pago',
+//                 transacao_id: transacaoId,
+//                 processado_em: new Date().toISOString(),
+//                 // DADOS COMPLETOS PARA SIMULAÇÃO
+//                 dados_simulacao: {
+//                     metodo_pagamento: 'unitel_money',
+//                     telefone_simulado: contaVirtual.numero_Unitel,
+//                     operadora_usada: contaVirtual.operadora,
+//                     tipo_transacao: 'pagamento_simulado',
+//                     tempo_processamento: '2.3s',
+//                     codigo_confirmacao: `CONF_${Math.random().toString(36).substr(2, 8).toUpperCase()}`,
+//                     hash_transacao: `HASH_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`
+//                 }
+//             },
+//             mensagem: "💰 Pagamento simulado com sucesso! Valores creditados automaticamente.",
+//             proximos_passos: [
+//                 "Consulte seu saldo atualizado",
+//                 "Verifique o extrato de movimentos", 
+//                 "A referência agora está marcada como 'paga'",
+//                 "Use os dados da conta virtual para próximas transações"
+//             ],
+//             // INFORMAÇÕES TÉCNICAS PARA DEBUG
+//             debug_info: {
+//                 referencia_dados: {
+//                     id_referencia: dadosRef.id,
+//                     criada_em: dadosRef.criada_em,
+//                     tempo_restante_minutos: Math.max(0, 30 - Math.floor(diffMinutos)),
+//                     valor_original: dadosRef.valor_total
+//                 },
+//                 conta_virtual_dados: {
+//                     conta_criada_agora: contasExistentes.length === 0,
+//                     saldo_antes: saldoAnterior,
+//                     saldo_depois: parseFloat(contaVirtual.saldo),
+//                     credito_aplicado: valorLiquido
+//                 },
+//                 calculo_taxas: {
+//                     valor_bruto: valorTotal,
+//                     percentual_taxa: taxaPercentual,
+//                     valor_taxa: taxaValor,
+//                     valor_liquido: valorLiquido
+//                 }
+//             }
+//         });
+
+//     } catch (error) {
+//         console.error("❌ ERRO DETALHADO ao simular pagamento:", error);
+//         console.error("❌ Stack trace:", error.stack);
+        
+//         res.status(500).json({
+//             erro: "Erro interno ao simular pagamento",
+//             codigo: "ERRO_SIMULACAO",
+//             detalhe: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno do servidor',
+//             timestamp: new Date().toISOString(),
+//             debug_info: process.env.NODE_ENV === 'development' ? {
+//                 error_message: error.message,
+//                 error_stack: error.stack
+//             } : undefined
+//         });
+//     }
+// });
+
+
+
 router.post("/simular-pagamento", autenticarToken, async (req, res) => {
-    const { referencia } = req.body;
+    const { referencia, metodo_pagamento } = req.body; // Adicionar metodo_pagamento no body
     const id_usuario = req.usuario.id_usuario;
 
     // Validações básicas
@@ -586,8 +885,105 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         });
     }
 
+    if (!metodo_pagamento) {
+        return res.status(400).json({ 
+            erro: "Método de pagamento é obrigatório",
+            codigo: "METODO_OBRIGATORIO"
+        });
+    }
+
     try {
-        console.log(`🧪 SIMULAÇÃO - Usuário: ${id_usuario}, Ref: ${referencia}`);
+        console.log(`🧪 SIMULAÇÃO - Usuário: ${id_usuario}, Ref: ${referencia}, Método: ${metodo_pagamento}`);
+
+        // ✅ NOVA VALIDAÇÃO: Verificar compatibilidade da referência com método de pagamento
+        const validarMetodoPagamento = (referencia, metodoPagamento) => {
+            const mapeamentoPrefixos = {
+                'UM': 'unitel_money',      // Prefixo UM só aceita unitel_money
+                'AM': 'africell_money',    // Prefixo AM só aceita africell_money  
+                'MX': 'multicaixa_express' // Prefixo MX só aceita multicaixa_express
+            };
+
+            // Extrair prefixo da referência (primeiros 2 caracteres)
+            const prefixoRef = referencia.substring(0, 2).toUpperCase();
+            
+            // Verificar se o prefixo existe no mapeamento
+            if (!mapeamentoPrefixos[prefixoRef]) {
+                return {
+                    valido: false,
+                    erro: "Prefixo da referência não reconhecido",
+                    codigo: "PREFIXO_INVALIDO",
+                    prefixo_encontrado: prefixoRef,
+                    prefixos_validos: Object.keys(mapeamentoPrefixos)
+                };
+            }
+
+            // Verificar se o método corresponde ao prefixo
+            const metodoEsperado = mapeamentoPrefixos[prefixoRef];
+            if (metodoPagamento !== metodoEsperado) {
+                return {
+                    valido: false,
+                    erro: "Método de pagamento incompatível com a referência",
+                    codigo: "METODO_INCOMPATIVEL",
+                    prefixo_referencia: prefixoRef,
+                    metodo_esperado: metodoEsperado,
+                    metodo_recebido: metodoPagamento,
+                    dica: `Esta referência (${prefixoRef}) só pode ser paga via ${metodoEsperado}`
+                };
+            }
+
+            return {
+                valido: true,
+                prefixo: prefixoRef,
+                metodo_confirmado: metodoEsperado
+            };
+        };
+
+        // Executar validação
+        const validacao = validarMetodoPagamento(referencia, metodo_pagamento);
+        
+        if (!validacao.valido) {
+            console.log(`❌ Método incompatível - Ref: ${referencia}, Método: ${metodo_pagamento}`);
+            return res.status(400).json({
+                erro: validacao.erro,
+                codigo: validacao.codigo,
+                detalhes: {
+                    referencia: referencia,
+                    prefixo_extraido: validacao.prefixo_encontrado || referencia.substring(0, 2),
+                    metodo_tentado: metodo_pagamento,
+                    metodo_esperado: validacao.metodo_esperado,
+                    prefixos_validos: validacao.prefixos_validos
+                },
+                dica: validacao.dica || "Verifique se está usando o método correto para esta referência",
+                exemplos: {
+                    "UM123456789": "unitel_money",
+                    "AM123456789": "africell_money", 
+                    "MX123456789": "multicaixa_express"
+                }
+            });
+        }
+
+        console.log(`✅ Validação aprovada - Prefixo: ${validacao.prefixo}, Método: ${validacao.metodo_confirmado}`);
+
+        // 1. VALIDAÇÃO DUPLICADA: Verificar se já existe pagamento para esta referência
+        const [pagamentoExistente] = await conexao.promise().query(`
+            SELECT id, status_pagamento, referencia_pagamento 
+            FROM pagamentos 
+            WHERE referencia_pagamento = ? AND status_pagamento IN ('pago', 'processando')
+        `, [referencia]);
+
+        if (pagamentoExistente.length > 0) {
+            console.log(`❌ Tentativa de pagamento duplicado para referência: ${referencia}`);
+            return res.status(400).json({ 
+                erro: "Esta referência já foi paga anteriormente",
+                codigo: "PAGAMENTO_DUPLICADO",
+                dica: "Não é possível processar o mesmo pagamento duas vezes",
+                pagamento_existente: {
+                    id: pagamentoExistente[0].id,
+                    status: pagamentoExistente[0].status_pagamento,
+                    referencia: pagamentoExistente[0].referencia_pagamento
+                }
+            });
+        }
 
         // Buscar referência do usuário logado
         const [refEncontrada] = await conexao.promise().query(`
@@ -606,6 +1002,21 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         const dadosRef = refEncontrada[0];
         console.log("📋 Dados da referência encontrada:", dadosRef);
+
+        // ✅ VALIDAÇÃO ADICIONAL: Verificar se o método da referência bate com o solicitado
+        if (dadosRef.tipo_pagamento !== metodo_pagamento) {
+            console.log(`❌ Método da referência (${dadosRef.tipo_pagamento}) diferente do solicitado (${metodo_pagamento})`);
+            return res.status(400).json({
+                erro: "Método de pagamento não corresponde ao da referência original",
+                codigo: "METODO_REF_INCOMPATIVEL",
+                detalhes: {
+                    metodo_referencia: dadosRef.tipo_pagamento,
+                    metodo_solicitado: metodo_pagamento,
+                    referencia: referencia
+                },
+                dica: `Esta referência foi gerada para ${dadosRef.tipo_pagamento}, use o método correto`
+            });
+        }
 
         // Verificar validade (30 minutos)
         const agora = new Date();
@@ -628,7 +1039,53 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
             });
         }
 
-        // VERSÃO SIMPLIFICADA - Calcular divisão simples
+        // 2. BUSCAR DADOS REAIS DO USUÁRIO
+        const [dadosUsuario] = await conexao.promise().query(`
+            SELECT id_usuario, nome, email, telefone, tipo_usuario 
+            FROM usuarios 
+            WHERE id_usuario = ?
+        `, [id_usuario]);
+
+        if (dadosUsuario.length === 0) {
+            return res.status(404).json({ 
+                erro: "Usuário não encontrado",
+                codigo: "USUARIO_NAO_ENCONTRADO"
+            });
+        }
+
+        const usuario = dadosUsuario[0];
+        console.log("👤 Dados do usuário:", usuario);
+
+        // 3. BUSCAR NÚMERO DO PEDIDO PARA PAGAMENTO (CORREÇÃO AQUI!)
+        let numeroParaPagamento = null;
+        
+        if (dadosRef.carrinho_id) {
+            const [enderecoPedido] = await conexao.promise().query(`
+                SELECT numero 
+                FROM endereco_pedidos 
+                WHERE id_pedido = ?
+                LIMIT 1
+            `, [dadosRef.carrinho_id]);
+            
+            if (enderecoPedido.length > 0) {
+                numeroParaPagamento = enderecoPedido[0].numero;
+                console.log("📱 Número encontrado no endereço do pedido:", numeroParaPagamento);
+            }
+        }
+
+        // Fallback: se não encontrar no endereço do pedido, usar o telefone do usuário
+        if (!numeroParaPagamento) {
+            numeroParaPagamento = usuario.telefone;
+            console.log("📱 Usando telefone do usuário como fallback:", numeroParaPagamento);
+        }
+
+        // Se ainda não tiver número, gerar um simulado
+        if (!numeroParaPagamento) {
+            numeroParaPagamento = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+            console.log("📱 Número simulado gerado:", numeroParaPagamento);
+        }
+
+        // Calcular divisão de valores
         const valorTotal = parseFloat(dadosRef.valor_total);
         const taxaPercentual = 5; // 5% de taxa
         const taxaValor = Math.round((valorTotal * taxaPercentual) / 100);
@@ -644,9 +1101,10 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         console.log("💰 Divisão calculada:", divisao);
 
-        // VERSÃO COMPLETAMENTE CORRIGIDA - Buscar ou criar conta virtual
+        // 4. BUSCAR OU CRIAR CONTA VIRTUAL COM DADOS REAIS
         let contaVirtual;
-        let contasExistentes = []; // Declarar a variável aqui
+        let contasExistentes = [];
+
         try {
             // Buscar conta existente do usuário
             const resultadoContas = await conexao.promise().query(`
@@ -656,73 +1114,78 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 LIMIT 1
             `, [id_usuario]);
             
-            contasExistentes = resultadoContas[0]; // Atribuir o resultado
+            contasExistentes = resultadoContas[0];
 
             if (contasExistentes.length > 0) {
                 contaVirtual = contasExistentes[0];
                 console.log("💳 Conta virtual encontrada:", contaVirtual.id);
             } else {
-                // Criar nova conta virtual incluindo TODOS os campos NOT NULL
-                const numeroAfricell = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
-                const numeroUnitel = `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+                // Criar nova conta virtual com dados reais do usuário
+                const numeroAfricell = numeroParaPagamento || `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
+                const numeroUnitel = numeroParaPagamento || `9${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`;
                 
-                // Incluir todos os campos obrigatórios (NOT NULL)
+                // ✅ CORREÇÃO: Determinar operadora baseada no método de pagamento validado
+                let operadoraPagamento;
+                switch(metodo_pagamento) {
+                    case 'africell_money':
+                        operadoraPagamento = 'Africell';
+                        break;
+                    case 'unitel_money':
+                        operadoraPagamento = 'Unitel';
+                        break;
+                    case 'multicaixa_express':
+                        operadoraPagamento = 'Multicaixa';
+                        break;
+                    default:
+                        operadoraPagamento = 'Unitel'; // fallback
+                }
+                
                 const [resultadoConta] = await conexao.promise().query(`
                     INSERT INTO contas_virtuais 
                     (id_usuario, transportadora_id, tipo_conta, saldo, numero_africell, numero_Unitel, operadora)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 `, [
-                    id_usuario,           // id_usuario (NOT NULL)
-                    1,                   // transportadora_id (NOT NULL) - usando ID 1 como padrão
-                    'Agricultor',        // tipo_conta 
-                    0.00,               // saldo (tem padrão 0.00)
-                    numeroAfricell,     // numero_africell (NOT NULL)
-                    numeroUnitel,       // numero_Unitel (NOT NULL)
-                    'Unitel'           // operadora (NOT NULL)
+                    id_usuario,
+                    1, // transportadora_id padrão
+                    usuario.tipo_usuario || 'Comprador',
+                    0.00,
+                    numeroAfricell,
+                    numeroUnitel,
+                    operadoraPagamento
                 ]);
 
                 contaVirtual = {
                     id: resultadoConta.insertId,
                     id_usuario: id_usuario,
                     transportadora_id: 1,
-                    tipo_conta: 'Agricultor',
+                    tipo_conta: usuario.tipo_usuario || 'Comprador',
                     saldo: 0.00,
                     numero_africell: numeroAfricell,
                     numero_Unitel: numeroUnitel,
-                    operadora: 'Unitel'
+                    operadora: operadoraPagamento
                 };
                 
                 console.log("💳 Nova conta virtual criada:", contaVirtual.id);
             }
         } catch (errorConta) {
             console.error("❌ Erro ao buscar/criar conta virtual:", errorConta);
-            console.error("❌ Detalhes do erro:", errorConta.message);
-            console.error("❌ SQL Error Code:", errorConta.code);
-            console.error("❌ SQL Error Number:", errorConta.errno);
             throw new Error("Erro ao processar conta virtual: " + errorConta.message);
         }
 
-        // VERSÃO CORRIGIDA - Registrar movimento
+        // Registrar movimento e atualizar saldo
         const saldoAnterior = parseFloat(contaVirtual.saldo) || 0;
         const novoSaldo = saldoAnterior + valorLiquido;
 
         try {
-            // Tentar registrar movimento apenas se a tabela existir
-            try {
-                // Registrar movimento na tabela correta: movimentacoes_conta_virtual
-                await conexao.promise().query(`
-                    INSERT INTO movimentacoes_conta_virtual (conta_virtual_id, tipo, valor, descricao)
-                    VALUES (?, 'credito', ?, ?)
-                `, [contaVirtual.id, valorLiquido, `💰 Pagamento simulado - Ref: ${referencia}`]);
-                
-                console.log("💰 Movimento registrado na tabela movimentacoes_conta_virtual");
-                
-            } catch (errorMovimento) {
-                console.log("⚠️ Erro ao registrar movimento:", errorMovimento.message);
-                console.log("⚠️ Continuando sem registrar movimento...");
-            }
+            // Registrar movimento
+            await conexao.promise().query(`
+                INSERT INTO movimentacoes_conta_virtual (conta_virtual_id, tipo, valor, descricao)
+                VALUES (?, 'credito', ?, ?)
+            `, [contaVirtual.id, valorLiquido, `💰 Pagamento ${metodo_pagamento} - Ref: ${referencia}`]);
+            
+            console.log("💰 Movimento registrado na tabela movimentacoes_conta_virtual");
 
-            // Atualizar saldo da conta virtual
+            // Atualizar saldo
             await conexao.promise().query(`
                 UPDATE contas_virtuais 
                 SET saldo = ?
@@ -737,58 +1200,51 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
             throw new Error("Erro ao registrar movimento na conta: " + errorMovimento.message);
         }
 
-        // CORREÇÃO PRINCIPAL: Usar apenas campos que existem na tabela
+        // 5. ATUALIZAR STATUS DA REFERÊNCIA
+        await conexao.promise().query(`
+            UPDATE referencias_pagamento 
+            SET status = 'paga', data_pagamento = CURRENT_TIMESTAMP
+            WHERE referencia = ?
+        `, [referencia]);
+        
+        console.log(`✅ Status da referência atualizado para 'paga'`);
+
+        // 6. REGISTRAR PAGAMENTO COM DADOS REAIS
         const transacaoId = `SIM_${Date.now()}`;
         
-        // Primeiro, vamos verificar quais campos existem na tabela referencias_pagamento
-        try {
-            // Tentativa com campos básicos que provavelmente existem
-            await conexao.promise().query(`
-                UPDATE referencias_pagamento 
-                SET status = 'paga'
-                WHERE referencia = ?
-            `, [referencia]);
-            
-            console.log(`✅ Status da referência atualizado para 'paga'`);
-            
-        } catch (errorUpdate) {
-            console.error("❌ Erro ao atualizar referência:", errorUpdate);
-            // Continuar mesmo se não conseguir atualizar
-        }
+        // Usar o número encontrado no endereço do pedido
+        const telefonePagador = numeroParaPagamento;
 
-        // Tentar criar um registro na tabela de pagamentos se ela existir
         try {
-            // Verificar se conseguimos inserir na tabela pagamentos
-            // Incluir id_pedido que é obrigatório
             const [resultadoPagamento] = await conexao.promise().query(`
                 INSERT INTO pagamentos 
                 (id_pedido, id_comprador, id_vendedor, tipo_pagamento, telefone_pagador, transacao_id, 
                  referencia_pagamento, valor_bruto, valor_taxa, valor_liquido, status_pagamento)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
-                dadosRef.carrinho_id || 0,  // id_pedido (usando carrinho_id ou 0 como fallback)
-                id_usuario,           // id_comprador
-                dadosRef.id_usuario,  // id_vendedor (mesmo usuário na simulação)
-                'unitel_money',       // tipo_pagamento
-                contaVirtual.numero_Unitel, // telefone_pagador
-                transacaoId,          // transacao_id
-                referencia,           // referencia_pagamento
-                valorTotal,           // valor_bruto
-                taxaValor,            // valor_taxa
-                valorLiquido,         // valor_liquido
-                'pago'                // status_pagamento
+                dadosRef.carrinho_id,     // id_pedido
+                id_usuario,               // id_comprador
+                dadosRef.id_usuario,      // id_vendedor (pode ser diferente em cenário real)
+                metodo_pagamento,         // ✅ usar método validado
+                telefonePagador,          // número do endereço do pedido
+                transacaoId,              // transacao_id
+                referencia,               // referencia_pagamento
+                valorTotal,               // valor_bruto
+                taxaValor,                // valor_taxa
+                valorLiquido,             // valor_liquido
+                'pago'                    // status_pagamento
             ]);
             
             console.log("💰 Pagamento registrado na tabela pagamentos, ID:", resultadoPagamento.insertId);
             
         } catch (errorPagamento) {
             console.log("⚠️ Erro ao registrar pagamento:", errorPagamento.message);
-            console.log("⚠️ Continuando sem registrar na tabela pagamentos...");
+            throw new Error("Erro ao registrar pagamento: " + errorPagamento.message);
         }
 
-        console.log(`✅ SIMULAÇÃO CONCLUÍDA - Ref: ${referencia}, Valor: ${dadosRef.valor_total}`);
+        console.log(`✅ SIMULAÇÃO CONCLUÍDA - Ref: ${referencia}, Valor: ${dadosRef.valor_total}, Método: ${metodo_pagamento}`);
 
-        // RESPOSTA COMPLETA COM TODOS OS DADOS NECESSÁRIOS
+        // RESPOSTA COMPLETA
         res.json({
             sucesso: true,
             MODO: "🧪 SIMULAÇÃO",
@@ -799,6 +1255,15 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 valor_pago: valorTotal,
                 valor_recebido: valorLiquido,
                 taxa_aplicada: taxaValor,
+                metodo_pagamento: metodo_pagamento, // ✅ incluir método usado
+                prefixo_referencia: validacao.prefixo, // ✅ mostrar prefixo validado
+                usuario_pagador: {
+                    id: usuario.id_usuario,
+                    nome: usuario.nome,
+                    telefone: usuario.telefone,
+                    numero_pagamento: numeroParaPagamento,
+                    tipo: usuario.tipo_usuario
+                },
                 conta_virtual: {
                     id: contaVirtual.id,
                     transportadora_id: contaVirtual.transportadora_id,
@@ -813,10 +1278,10 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 status: 'pago',
                 transacao_id: transacaoId,
                 processado_em: new Date().toISOString(),
-                // DADOS COMPLETOS PARA SIMULAÇÃO
                 dados_simulacao: {
-                    metodo_pagamento: 'unitel_money',
-                    telefone_simulado: contaVirtual.numero_Unitel,
+                    metodo_pagamento: metodo_pagamento,
+                    prefixo_validado: validacao.prefixo,
+                    telefone_simulado: telefonePagador,
                     operadora_usada: contaVirtual.operadora,
                     tipo_transacao: 'pagamento_simulado',
                     tempo_processamento: '2.3s',
@@ -824,20 +1289,31 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                     hash_transacao: `HASH_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`
                 }
             },
-            mensagem: "💰 Pagamento simulado com sucesso! Valores creditados automaticamente.",
+            mensagem: `💰 Pagamento simulado com sucesso via ${metodo_pagamento}! Valores creditados automaticamente.`,
             proximos_passos: [
                 "Consulte seu saldo atualizado",
                 "Verifique o extrato de movimentos", 
                 "A referência agora está marcada como 'paga'",
                 "Use os dados da conta virtual para próximas transações"
             ],
-            // INFORMAÇÕES TÉCNICAS PARA DEBUG
             debug_info: {
+                validacao_metodo: {
+                    prefixo_referencia: validacao.prefixo,
+                    metodo_confirmado: validacao.metodo_confirmado,
+                    validacao_aprovada: true
+                },
                 referencia_dados: {
                     id_referencia: dadosRef.id,
                     criada_em: dadosRef.criada_em,
                     tempo_restante_minutos: Math.max(0, 30 - Math.floor(diffMinutos)),
-                    valor_original: dadosRef.valor_total
+                    valor_original: dadosRef.valor_total,
+                    tipo_pagamento_original: dadosRef.tipo_pagamento
+                },
+                usuario_dados: {
+                    nome: usuario.nome,
+                    telefone_usuario: usuario.telefone,
+                    numero_usado_pagamento: numeroParaPagamento,
+                    operadora_escolhida: contaVirtual.operadora
                 },
                 conta_virtual_dados: {
                     conta_criada_agora: contasExistentes.length === 0,
@@ -870,6 +1346,8 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         });
     }
 });
+
+
 
 
 // ========================================
