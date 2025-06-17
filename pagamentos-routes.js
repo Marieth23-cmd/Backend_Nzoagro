@@ -885,7 +885,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         });
     }
 
-    if (!metodo_pagamento) {
+    if (metodo_pagamento.length === 0) {
         return res.status(400).json({ 
             erro: "Método de pagamento é obrigatório",
             codigo: "METODO_OBRIGATORIO"
@@ -1447,7 +1447,7 @@ router.post("/confirmar-entrega/:transacao_id", autenticarToken, async (req, res
         distribuicoesRealizadas.push({
             destinatario: pag.nome_vendedor,
             tipo: 'Vendedor',
-            valor: pag.valor_liquido, // CORRIGIDO: era valor_liquido_vendedor
+            valor: pag.valor_liquido, 
             descricao: 'Pagamento pela venda (transferido da conta NzoAgro)',
             metodo_transferencia: 'Transferência via Unitel Money/Africell Money'
         });
