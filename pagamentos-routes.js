@@ -876,8 +876,8 @@ router.post("/gerar-referencia", autenticarToken, async (req, res) => {
 router.post("/simular-pagamento", autenticarToken, async (req, res) => {
     const { referencia, metodo_pagamento } = req.body; // Adicionar metodo_pagamento no body
     const id_usuario = req.usuario.id_usuario;
-
-    // Validações básicas
+    console.log( "dados recebidos:", req.body) 
+        console.log( "metodo de pagamento:", metodo_pagamento)    // Validações básicas
     if (!referencia) {
         return res.status(400).json({ 
             erro: "Referência é obrigatória",
@@ -885,12 +885,21 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
         });
     }
 
-    if (metodo_pagamento.length === 0) {
+    if (!metodo_pagamento || (typeof metodo_pagamento === 'string' && metodo_pagamento.trim().length === 0)) {
         return res.status(400).json({ 
             erro: "Método de pagamento é obrigatório",
-            codigo: "METODO_OBRIGATORIO"
+            codigo: "METODO_OBRIGATORIO",
+            detalhes: {
+                body_recebido: req.body,
+                metodo_pagamento_valor: metodo_pagamento,
+                metodo_pagamento_tipo: typeof metodo_pagamento,
+                keys_do_body: Object.keys(req.body)
+            },
+            metodos_validos: ["unitel_money", "africell_money", "multicaixa_express"],
+            dica: "Verifique se o campo 'metodo_pagamento' está sendo enviado no body da requisição"
         });
     }
+
 
     try {
         console.log(`🧪 SIMULAÇÃO - Usuário: ${id_usuario}, Ref: ${referencia}, Método: ${metodo_pagamento}`);
