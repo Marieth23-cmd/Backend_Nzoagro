@@ -1156,7 +1156,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                 `, [
                     id_usuario,
                     1, // transportadora_id padrão
-                    usuario.tipo_usuario || 'Comprador',
+                    usuario.tipo_usuario || 'Administrador',
                     0.00,
                     numeroAfricell,
                     numeroUnitel,
@@ -1167,7 +1167,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
                     id: resultadoConta.insertId,
                     id_usuario: id_usuario,
                     transportadora_id: 1,
-                    tipo_conta: usuario.tipo_usuario || 'Comprador',
+                    tipo_conta: usuario.tipo_usuario || 'Administrador',
                     saldo: 0.00,
                     numero_africell: numeroAfricell,
                     numero_Unitel: numeroUnitel,
