@@ -1050,7 +1050,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
         // 2. BUSCAR DADOS REAIS DO USUÁRIO
         const [dadosUsuario] = await conexao.promise().query(`
-            SELECT id_usuario, nome, email, telefone, tipo_usuario 
+            SELECT id_usuario, nome, email, contacto, tipo_usuario 
             FROM usuarios 
             WHERE id_usuario = ?
         `, [id_usuario]);
@@ -1233,7 +1233,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
             `, [
                 dadosRef.carrinho_id,     // id_pedido
                 id_usuario,               // id_comprador
-                dadosRef.id_usuario,      // id_vendedor (pode ser diferente em cenário real)
+                dadosRef.id_usuario,      // id_vendedor 
                 metodo_pagamento,         // ✅ usar método validado
                 telefonePagador,          // número do endereço do pedido
                 transacaoId,              // transacao_id
