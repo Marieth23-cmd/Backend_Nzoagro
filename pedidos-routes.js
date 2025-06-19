@@ -1379,7 +1379,7 @@ router.put("/marcar-pronto/:pedido_id", autenticarToken, autorizarUsuario(["Agri
 
 
 
-outer.put("/cancelar/:pedido_id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor", "Administrador"]), async (req, res) => {
+router.put("/cancelar/:pedido_id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor", "Administrador"]), async (req, res) => {
     const { pedido_id } = req.params;
     const { motivo_cancelamento } = req.body;
     const usuarioId = req.usuario.id_usuario;
