@@ -3,6 +3,8 @@ const router = express.Router();
 const conexao = require("./database");
 const numeroAngola=/^9\d{8}$/
 const { autenticarToken, autorizarUsuario } = require("./mildwaretoken");
+const notificar = require("./utils/notificar");
+
 
 
 
@@ -1161,6 +1163,322 @@ router.get("/minhas-notificacoes", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao carregar notificações." });
     }
 });
+
+
+
+
+// ENDPOINT - Marcar produto como pronto para retirada
+router.put("/marcar-pronto/:pedido_id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor", "Administrador"]), async (req, res) => {
+    const { pedido_id } = req.params;
+    const { observacoes } = req.body; // observações opcionais
+    const usuarioId = req.usuario.id_usuario;
+    const tipoUsuario = req.usuario.tipo_usuario;
+    
+    try {
+        console.log(`🔍 Tentando marcar pedido ${pedido_id} como pronto`);
+        
+        // 1. VERIFICAR SE O PEDIDO EXISTE E ESTÁ NO ESTADO CORRETO
+        const [pedido] = await conexao.promise().query(
+            `SELECT p.*, u.nome as cliente_nome, u.email as cliente_email
+             FROM pedidos p 
+             JOIN usuarios u ON p.id_usuario = u.id_usuario
+             WHERE p.id_pedido = ? AND p.estado IN ('processado', 'confirmado')`,
+            [pedido_id]
+        );
+        
+        if (pedido.length === 0) {
+            return res.status(404).json({ 
+                message: "Pedido não encontrado ou não está em estado válido para ser marcado como pronto" 
+            });
+        }
+        
+        const pedidoInfo = pedido[0];
+        
+        // 2. VERIFICAR SE O USUÁRIO TEM PERMISSÃO (se não for admin, verificar se tem produtos no pedido)
+        if (tipoUsuario !== "Administrador") {
+            const [produtosUsuario] = await conexao.promise().query(
+                `SELECT COUNT(*) as total 
+                 FROM itens_pedido ip
+                 JOIN produtos p ON ip.id_produto = p.id_produtos
+                 WHERE ip.pedidos_id = ? AND p.id_usuario = ?`,
+                [pedido_id, usuarioId]
+            );
+            
+            if (produtosUsuario[0].total === 0) {
+                return res.status(403).json({ 
+                    message: "Você não tem produtos neste pedido" 
+                });
+            }
+        }
+        
+        // 3. ATUALIZAR ESTADO DO PEDIDO
+        await conexao.promise().query(
+            `UPDATE pedidos 
+             SET estado = 'aguardando retirada',
+                 data_confirmacao = COALESCE(data_confirmacao, NOW())
+             WHERE id_pedido = ?`,
+            [pedido_id]
+        );
+        
+        console.log(`✅ Pedido ${pedido_id} marcado como 'aguardando retirada'`);
+        
+        // 4. BUSCAR DETALHES DOS PRODUTOS NO PEDIDO E CALCULAR PESO TOTAL
+        const [itensPedido] = await conexao.promise().query(
+            `SELECT ip.*, p.nome as produto_nome, p.id_usuario as vendedor_id,
+                    u.nome as vendedor_nome, p.peso_kg as peso_cadastrado,
+                    e.quantidade as quantidade_cadastrada
+             FROM itens_pedido ip
+             JOIN produtos p ON ip.id_produto = p.id_produtos
+             JOIN usuarios u ON p.id_usuario = u.id_usuario
+             JOIN estoque e ON p.id_produtos = e.produto_id
+             WHERE ip.pedidos_id = ?`,
+            [pedido_id]
+        );
+        
+        // 5. CALCULAR PESO TOTAL E COMISSÃO DA TRANSPORTADORA
+        let pesoTotal = 0;
+        
+        itensPedido.forEach(item => {
+            // Calcular proporção baseada na quantidade comprada vs cadastrada
+            const proporcao = item.quantidade_comprada / item.quantidade_cadastrada;
+            // Calcular peso proporcional
+            const peso_final = item.peso_cadastrado * proporcao;
+            pesoTotal += peso_final;
+        });
+        
+        // Função para calcular frete baseado no peso total
+        const calcularFrete = (peso) => {
+            if (peso >= 10 && peso <= 30) return { base: 10000, comissao: 1000 };
+            if (peso >= 31 && peso <= 50) return { base: 15000, comissao: 1500 };
+            if (peso >= 51 && peso <= 70) return { base: 20000, comissao: 2000 };
+            if (peso >= 71 && peso <= 100) return { base: 25000, comissao: 2500 };
+            if (peso >= 101 && peso <= 300) return { base: 35000, comissao: 3500 };
+            if (peso >= 301 && peso <= 500) return { base: 50000, comissao: 5000 };
+            if (peso >= 501 && peso <= 1000) return { base: 80000, comissao: 8000 };
+            if (peso >= 1001 && peso <= 2000) return { base: 120000, comissao: 12000 };
+            return { base: 0, comissao: 0 };
+        };
+        
+        const frete = calcularFrete(pesoTotal);
+        
+        // 6. BUSCAR ENDEREÇO DO VENDEDOR
+        const [vendedorInfo] = await conexao.promise().query(
+            `SELECT u.nome, u.contato, e.rua, e.bairro, e.provincia, e.municipio
+             FROM usuarios u
+             JOIN produtos p ON u.id_usuario = p.id_usuario
+             JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
+             LEFT JOIN endereco e ON u.id_usuario = e.id_usuario
+             WHERE ip.pedidos_id = ?
+             LIMIT 1`,
+            [pedido_id]
+        );
+        
+        const enderecoVendedor = vendedorInfo.length > 0 && vendedorInfo[0].rua ? 
+            `${vendedorInfo[0].rua}, ${vendedorInfo[0].bairro}, ${vendedorInfo[0].municipio}, ${vendedorInfo[0].provincia}` : 
+            'Endereço não encontrado';
+        
+        // 7. NOTIFICAR A TRANSPORTADORA (com apenas a comissão)
+        const listaProdutos = itensPedido.map(item => 
+            `${item.produto_nome} (${item.quantidade_comprada}x)`
+        ).join(', ');
+        
+        const mensagemTransportadora = `🚛 Pedido pronto para coleta!\n` +
+                                     `🆔 Pedido: #${pedido_id}\n` +
+                                     `👤 Cliente final: ${pedidoInfo.cliente_nome}\n` +
+                                     `🏪 Buscar em: ${enderecoVendedor}\n` +
+                                     `📞 Vendedor: ${vendedorInfo[0]?.contato || 'N/A'}\n` +
+                                     `📦 Produtos: ${listaProdutos}\n` +
+                                     `⚖️ Peso total: ${pesoTotal.toFixed(2)} kg\n` +
+                                     `💰 Valor do frete: ${frete.base} Kz` +
+                                     (observacoes ? `\n💬 Observações: ${observacoes}` : '');
+        
+        try {
+            // Buscar transportadora específica (ID = 2)
+            const [transportadora] = await conexao.promise().query(
+                "SELECT id, nome, contacto, email FROM transportadoras WHERE id = 2 AND status = 'ativo'"
+            );
+            
+            if (transportadora.length > 0) {
+                const transportadoraInfo = transportadora[0];
+                
+                // Notificação usando await notificar com dados estruturados
+                await notificar(transportadoraInfo.id, mensagemTransportadora, {
+                    pedido_id: pedido_id,
+                    estado: "aguardando retirada",
+                    tipo_notificacao: "coleta_pedido",
+                    cliente: {
+                        nome: pedidoInfo.cliente_nome,
+                        email: pedidoInfo.cliente_email
+                    },
+                    vendedor: {
+                        endereco: enderecoVendedor,
+                        contato: vendedorInfo[0]?.contato || null,
+                        nome: vendedorInfo[0]?.nome || null
+                    },
+                    produtos: itensPedido.map(item => ({
+                        nome: item.produto_nome,
+                        quantidade: item.quantidade_comprada
+                    })),
+                    peso_total: pesoTotal,
+                    frete: frete.base,
+                    observacoes: observacoes,
+                    timestamp: new Date().toISOString()
+                });
+                console.log(`✅ Transportadora ${transportadoraInfo.nome} (ID: 2) notificada para buscar pedido ${pedido_id}`);
+            } else {
+                console.log(`⚠️ Transportadora com ID 2 não encontrada ou inativa`);
+            }
+        } catch (error) {
+            console.error(`❌ Erro ao notificar transportadora:`, error);
+        }
+        
+        // 8. NOTIFICAR ADMINISTRADORES
+        try {
+            const [admins] = await conexao.promise().query(
+                "SELECT id_usuario, nome FROM usuarios WHERE tipo_usuario = 'Administrador'"
+            );
+            
+            const mensagemAdmin = `📦 Pedido #${pedido_id} marcado como pronto por ${req.usuario.nome || 'Vendedor'}. Transportadora notificada para coleta.`;
+            
+            for (const admin of admins) {
+                await notificar(admin.id_usuario, mensagemAdmin, {
+                    pedido_id: pedido_id,
+                    estado: "aguardando retirada",
+                    acao: "pedido_pronto",
+                    vendedor: req.usuario.nome || 'Vendedor',
+                    timestamp: new Date().toISOString()
+                });
+                console.log(`✅ Admin ${admin.nome} notificado sobre pedido ${pedido_id}`);
+            }
+        } catch (error) {
+            console.error(`❌ Erro ao notificar admins:`, error);
+        }
+        
+        res.json({
+            message: "Pedido marcado como pronto! Transportadora foi notificada para coleta.",
+            pedido_id: pedido_id,
+            estado: "aguardando retirada",
+            vendedor: {
+                endereco: enderecoVendedor,
+                telefone: vendedorInfo[0]?.contato || null
+            },
+            peso_total: pesoTotal,
+            frete_transportadora: frete.base,
+            comissao_plataforma: frete.comissao,
+            observacoes: observacoes || null
+        });
+        
+    } catch (error) {
+        console.error("❌ Erro ao marcar pedido como pronto:", error);
+        res.status(500).json({
+            message: "Erro interno do servidor",
+            error: error.message
+        });
+    }
+});
+
+
+
+outer.put("/cancelar/:pedido_id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor", "Administrador"]), async (req, res) => {
+    const { pedido_id } = req.params;
+    const { motivo_cancelamento } = req.body;
+    const usuarioId = req.usuario.id_usuario;
+    const tipoUsuario = req.usuario.tipo_usuario;
+    
+    try {
+        console.log(`🔍 Tentando cancelar pedido ${pedido_id}`);
+        
+        // 1. VERIFICAR SE O PEDIDO EXISTE E PODE SER CANCELADO
+        const [pedido] = await conexao.promise().query(
+            `SELECT p.*, u.nome as cliente_nome, u.email as cliente_email
+             FROM pedidos p 
+             JOIN usuarios u ON p.id_usuario = u.id_usuario
+             WHERE p.id_pedido = ? AND p.estado IN ('processado', 'confirmado', 'aguardando retirada')`,
+            [pedido_id]
+        );
+        
+        if (pedido.length === 0) {
+            return res.status(404).json({ 
+                message: "Pedido não encontrado ou não pode ser cancelado" 
+            });
+        }
+        
+        const pedidoInfo = pedido[0];
+        
+        // 2. VERIFICAR PERMISSÃO (se não for admin, verificar se tem produtos no pedido)
+        if (tipoUsuario !== "Administrador") {
+            const [produtosUsuario] = await conexao.promise().query(
+                `SELECT COUNT(*) as total 
+                 FROM itens_pedido ip
+                 JOIN produtos p ON ip.id_produto = p.id_produtos
+                 WHERE ip.pedidos_id = ? AND p.id_usuario = ?`,
+                [pedido_id, usuarioId]
+            );
+            
+            if (produtosUsuario[0].total === 0) {
+                return res.status(403).json({ 
+                    message: "Você não tem produtos neste pedido" 
+                });
+            }
+        }
+        
+        // 3. CANCELAR O PEDIDO
+        await conexao.promise().query(
+            `UPDATE pedidos 
+             SET estado = 'cancelado',
+                 data_cancelamento = NOW()
+             WHERE id_pedido = ?`,
+            [pedido_id]
+        );
+        
+        console.log(`✅ Pedido ${pedido_id} cancelado com sucesso`);
+        
+        // 4. NOTIFICAR O CLIENTE
+        const mensagemCliente = `❌ Pedido #${pedido_id} foi cancelado\n` +
+                              `💭 Motivo: ${motivo_cancelamento || 'Não especificado'}\n` +
+                              `💰 Valor: ${pedidoInfo.valor_total} Kz será reembolsado`;
+        
+        try {
+            await notificar(pedidoInfo.id_usuario, mensagemCliente);
+            console.log(`✅ Cliente notificado sobre cancelamento do pedido ${pedido_id}`);
+        } catch (error) {
+            console.error(`❌ Erro ao notificar cliente:`, error);
+        }
+        
+        // 5. NOTIFICAR ADMINS
+        try {
+            const [admins] = await conexao.promise().query(
+                "SELECT id_usuario, nome FROM usuarios WHERE tipo_usuario = 'Administrador'"
+            );
+            
+            const mensagemAdmin = `❌ Pedido #${pedido_id} cancelado por ${req.usuario.nome || 'Vendedor'}. Motivo: ${motivo_cancelamento || 'Não especificado'}`;
+            
+            for (const admin of admins) {
+                await notificar(admin.id_usuario, mensagemAdmin);
+            }
+        } catch (error) {
+            console.error(`❌ Erro ao notificar admins:`, error);
+        }
+        
+        res.json({
+            message: "Pedido cancelado com sucesso!",
+            pedido_id: pedido_id,
+            estado: "cancelado",
+            motivo: motivo_cancelamento || null
+        });
+        
+    } catch (error) {
+        console.error("❌ Erro ao cancelar pedido:", error);
+        res.status(500).json({
+            message: "Erro interno do servidor",
+            error: error.message
+        });
+    }
+});
+
+
+
+
 
 module.exports = router;
 

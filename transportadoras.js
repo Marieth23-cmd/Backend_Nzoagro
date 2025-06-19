@@ -7,6 +7,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { autenticarToken } = require("./mildwaretoken");
  const SECRET_KEY = process.env.SECRET_KEY || "chaveDeSegurancaPadrao";
+ const notificar = require("./utils/notificar");
 
 
 router.post("/cadastrar", async (req, res) => {
@@ -385,29 +386,30 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
 
         // ENVIAR NOTIFICAÇÃO PARA O CLIENTE
         const mensagemCliente = `🚚 Seu pedido #${pedidos_id} está pronto para retirada!\n` +
-                               `📍 Local: ${filial.endereco_completo}\n` +
-                               `🏢 Transportadora: ${transportadora.nome}\n` +
-                               `📞 Contato: ${transportadora.contacto}` +
-                               (observacoes ? `\n💬 Observações: ${observacoes}` : '');
+                        `📍 Local: ${filial.endereco_completo}\n` +
+                        `🏢 Transportadora: ${transportadora.nome}\n` +
+                        `📞 Contato: ${transportadora.contacto}` +
+                        (observacoes ? `\n💬 Observações: ${observacoes}` : '');
 
-        // Notificação via Socket.io (tempo real)
-        io.to(`usuario_${pedido.id_usuario}`).emit("pedido_pronto_retirada", {
-            message: mensagemCliente,
-            pedido_id: pedidos_id,
-            estado: "aguardando retirada",
-            filial: {
-                endereco: filial.endereco_completo,
-                provincia: filial.provincia,
-                bairro: filial.bairro,
-                descricao: filial.descricao
-            },
-            transportadora: {
-                nome: transportadora.nome,
-                contacto: transportadora.contacto
-            },
-            observacoes: observacoes,
-            timestamp: new Date().toISOString()
-        });
+// Notificação usando await notificar ao invés do Socket.io
+await notificar(pedido.id_usuario, mensagemCliente, {
+    pedido_id: pedidos_id,
+    estado: "aguardando retirada",
+    filial: {
+        endereco: filial.endereco_completo,
+        provincia: filial.provincia,
+        bairro: filial.bairro,
+        descricao: filial.descricao
+    },
+    transportadora: {
+        nome: transportadora.nome,
+        contacto: transportadora.contacto
+    },
+    observacoes: observacoes,
+    timestamp: new Date().toISOString()
+});
+
+console.log(`✅ Cliente ${pedido.id_usuario} notificado sobre pedido ${pedidos_id} pronto para retirada`);
 
         // Salvar notificação no banco (para histórico)
         await conexao.promise().query(`
@@ -481,13 +483,13 @@ router.put("/finalizar-entrega/:pedido_id", autenticarToken, async (req, res) =>
         const mensagemFinal = `✅ Pedido #${pedido_id} foi entregue com sucesso!\n` +
                              `Obrigado por escolher nossos serviços!`;
 
-        io.to(`usuario_${entrega.id_usuario}`).emit("pedido_entregue", {
-            message: mensagemFinal,
-            pedido_id: pedido_id,
-            estado: "entregue",
-            timestamp: new Date().toISOString()
-        });
+         await notificar(entrega.id_usuario, mensagemFinal, {
+                pedido_id: pedido_id,
+                estado: "entregue",
+                timestamp: new Date().toISOString()
+            });
 
+console.log(`✅ Cliente ${entrega.id_usuario} notificado sobre entrega do pedido ${pedido_id}`);
         // Salvar notificação
         await conexao.promise().query(`
             INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)

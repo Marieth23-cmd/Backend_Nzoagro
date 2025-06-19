@@ -289,7 +289,7 @@ router.put(
 router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Fornecedor","Administrador"]), async (req, res) => {
     const produtoId = req.params.id;
     const usuarioId = req.usuario.id_usuario;
-    const tipoUsuario = req.usuario.tipo;
+    const tipoUsuario = req.usuario.tipo_usuario; // ← MUDANÇA AQUI: era req.usuario.tipo
     
     try {
         // Primeiro, buscar informações do produto
@@ -325,23 +325,14 @@ router.delete("/:id", autenticarToken, autorizarUsuario(["Agricultor", "Forneced
                 `Seu produto "${produtoInfo.nome_produto}" foi removido por não cumprir as regras da plataforma.`,
                 'moderacao'
             );
+        }
             
-        //     // Log para controle administrativo
-        //     await conexao.promise().query(
-        //         "INSERT INTO logs_moderacao (admin_id, usuario_afetado, acao, produto_id, motivo) VALUES (?, ?, ?, ?, ?)",
-        //         [usuarioId, produtoInfo.id_usuario, 'DELETE_PRODUTO', produtoId, 'Produto fora das regras da plataforma']
-        //     );
-        // }
-        
         res.json({ mensagem: "Produto deletado com sucesso!" });
         
-    }
-   } catch (error) {
+    } catch (error) {
         res.status(500).json({ erro: "Erro ao deletar o produto", detalhe: error.message });
-    
-     }
+    }
 });
-
 
 router.patch('/:id/destaque', autenticarToken, async (req, res) => {
   const { id } = req.params;

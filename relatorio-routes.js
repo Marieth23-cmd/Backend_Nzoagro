@@ -103,7 +103,7 @@ router.get("/vendas/fornecedor", autenticarToken, autorizarUsuario(["Agricultor"
             p.estado AS Estado,
             u.nome AS Nome_Comprador,
             u.email AS Email_Comprador,
-            pag.status_pagamento AS Status_Pagamento,
+            pag.status_pagamento AS status_pagamentos,
             pag.data_pagamento AS Data_Pagamento,
             pag.valor_bruto AS Valor_Bruto,
             pag.valor_liquido AS Valor_Liquido_Recebido,
@@ -574,8 +574,7 @@ router.get("/exportar/vendas/fornecedor/pdf", autenticarToken, autorizarUsuario(
         JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
         WHERE prod.id_usuario = ?
-        AND p.estado IN ('Concluído', 'Entregue')
-        AND pag.status_pagamento IN ('pago', 'liberado')
+        AND p.estado IN ('Entregue')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -651,8 +650,7 @@ router.get("/exportar/vendas/fornecedor/csv", autenticarToken, autorizarUsuario(
         JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
         WHERE prod.id_usuario = ?
-        AND p.estado IN ('Concluído', 'Entregue')
-        AND pag.status_pagamento IN ('pago', 'liberado')
+        AND p.estado IN ('Entregue')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -696,8 +694,7 @@ router.get("/exportar/compras/comprador/pdf", autenticarToken, async (req, res) 
         LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
         JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         WHERE p.id_usuario = ?
-        AND p.estado IN ('Concluído', 'Entregue')
-        AND pag.status_pagamento IN ('pago', 'liberado')
+        AND pag.status_pagamento IN ('pago')
         ORDER BY p.data_pedido DESC
     `;
 
@@ -772,8 +769,7 @@ router.get("/exportar/compras/comprador/csv", autenticarToken, async (req, res) 
         LEFT JOIN usuarios vendedor ON prod.id_usuario = vendedor.id_usuario
        JOIN pagamentos pag ON p.id_pedido = pag.id_pedido
         WHERE p.id_usuario = ?
-        AND p.estado IN ('Concluído', 'Entregue')
-        AND pag.status_pagamento IN ('pago', 'liberado')
+        AND pag.status_pagamento IN ('pago')
         ORDER BY p.data_pedido DESC
     `;
 
