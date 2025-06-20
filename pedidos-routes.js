@@ -993,7 +993,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
 
         // Atualizar estado do pedido
         await conexao.promise().query(
-            "UPDATE pedidos SET estado = 'aguardando retirada' WHERE id_pedido = ?",
+            "UPDATE pedidos SET estado = 'em trânsito' WHERE id_pedido = ?",
             [pedidos_id]
         );
 
@@ -1214,13 +1214,13 @@ router.put("/marcar-pronto/:pedido_id", autenticarToken, autorizarUsuario(["Agri
         // 3. ATUALIZAR ESTADO DO PEDIDO
         await conexao.promise().query(
             `UPDATE pedidos 
-             SET estado = 'aguardando retirada',
+             SET estado = 'em trânsito',
                  data_confirmacao = COALESCE(data_confirmacao, NOW())
              WHERE id_pedido = ?`,
             [pedido_id]
         );
         
-        console.log(`✅ Pedido ${pedido_id} marcado como 'aguardando retirada'`);
+        console.log(`✅ Pedido ${pedido_id} marcado como 'aguardando retirada' da transportadora`);
         
         // 4. BUSCAR DETALHES DOS PRODUTOS NO PEDIDO E CALCULAR PESO TOTAL
         const [itensPedido] = await conexao.promise().query(
