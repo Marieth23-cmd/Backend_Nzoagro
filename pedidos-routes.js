@@ -1263,7 +1263,7 @@ router.put("/marcar-pronto/:pedido_id", autenticarToken, autorizarUsuario(["Agri
         
         // 6. BUSCAR ENDEREÇO DO VENDEDOR
         const [vendedorInfo] = await conexao.promise().query(
-            `SELECT u.nome, u.contato, e.rua, e.bairro, e.provincia, e.municipio
+            `SELECT u.nome, u.contacto, e.rua, e.bairro, e.provincia, e.municipio
              FROM usuarios u
              JOIN produtos p ON u.id_usuario = p.id_usuario
              JOIN itens_pedido ip ON p.id_produtos = ip.id_produto
