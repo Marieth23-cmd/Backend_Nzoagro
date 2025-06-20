@@ -100,7 +100,7 @@ router.get("/vendas/fornecedor", autenticarToken, autorizarUsuario(["Agricultor"
         SELECT 
             p.id_pedido AS Numero_Pedido,
             p.data_pedido AS Data_Pedido,
-            p.estado AS Estado,
+            p.estado AS  Status_Pedido,
             u.nome AS Nome_Comprador,
             u.email AS Email_Comprador,
             pag.status_pagamento AS status_pagamentos,
@@ -110,9 +110,9 @@ router.get("/vendas/fornecedor", autenticarToken, autorizarUsuario(["Agricultor"
             pag.valor_comissao AS Comissao_Plataforma,
             prod.nome AS Nome_Produto,
             prod.categoria AS Categoria_Produto,
-            item.quantidade_comprada AS Quantidade_Vendida,
+            item.quantidade_comprada AS Quantidade_Total,
             item.preco AS Preco_Unitario,
-            (item.quantidade_comprada * item.preco) AS Valor_Total_Item
+            (item.quantidade_comprada * item.preco) AS Valor_Total
         FROM pedidos p
         JOIN itens_pedido item ON p.id_pedido = item.pedidos_id
         JOIN produtos prod ON item.id_produto = prod.id_produtos
