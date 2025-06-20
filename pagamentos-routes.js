@@ -1059,249 +1059,384 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 
 
 
-// ========================================
-// ROTA: CONFIRMAR ENTREGA E DISTRIBUIR VALORES
-// ========================================
-router.post("/confirmar-entrega/:transacao_id", autenticarToken, async (req, res) => {
-    const { transacao_id } = req.params;
-    const { confirmado_por, metodo_confirmacao = 'manual', id_transportadora } = req.body;
+// // ========================================
+// // ROTA: CONFIRMAR ENTREGA E DISTRIBUIR VALORES - VERSÃO CORRIGIDA
+// // ========================================
+// router.post("/confirmar-entrega/:transacao_id", autenticarToken, async (req, res) => {
+//     const { transacao_id } = req.params;
+//     const { confirmado_por, metodo_confirmacao = 'manual', id_transportadora } = req.body;
 
-    if (!confirmado_por) {
-        return res.status(400).json({ mensagem: "Campo 'confirmado_por' é obrigatório" });
-    }
+//     // Validações básicas
+//     if (!confirmado_por) {
+//         return res.status(400).json({ 
+//             erro: "Campo 'confirmado_por' é obrigatório",
+//             codigo: "CONFIRMADO_POR_OBRIGATORIO"
+//         });
+//     }
+
+//     try {
+//         console.log(`🚚 CONFIRMAÇÃO DE ENTREGA - Transação: ${transacao_id}, Por: ${confirmado_por}`);
+
+//         // 1. BUSCAR PAGAMENTO E DADOS RELACIONADOS (QUERY CORRIGIDA)
+//         const [pagamento] = await conexao.promise().query(`
+//             SELECT p.*, 
+//                    u_comprador.nome as nome_comprador,
+//                    u_comprador.email as email_comprador,
+//                    u_comprador.contacto as telefone_comprador,
+//                    u_vendedor.nome as nome_vendedor,
+//                    u_vendedor.email as email_vendedor,
+//                    u_vendedor.contacto as telefone_vendedor,
+//                    u_vendedor.tipo_usuario as tipo_vendedor,
+//                    e.id as id_entrega,
+//                    e.estado_entrega,
+//                    e.transportadora_nome,
+//                    e.transportadora_id as entrega_transportadora_id
+//             FROM pagamentos p
+//             JOIN usuarios u_comprador ON p.id_comprador = u_comprador.id_usuario
+//             JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
+//             LEFT JOIN entregas e ON p.id_pedido = e.pedido_id
+//             WHERE p.transacao_id = ?
+//             LIMIT 1
+//         `, [transacao_id]);
+
+//         if (pagamento.length === 0) {
+//             return res.status(404).json({ 
+//                 erro: "Transação não encontrada",
+//                 codigo: "TRANSACAO_NAO_ENCONTRADA",
+//                 transacao_id: transacao_id
+//             });
+//         }
+
+//         const pag = pagamento[0];
+//         console.log("📋 Dados do pagamento encontrado:", {
+//             id: pag.id,
+//             status: pag.status_pagamento,
+//             valor_bruto: pag.valor_bruto,
+//             valor_liquido: pag.valor_liquido
+//         });
+
+//         // 2. VALIDAR STATUS DO PAGAMENTO (USANDO VALORES REAIS)
+//         if (pag.status_pagamento !== 'pago') {
+//             return res.status(400).json({ 
+//                 erro: "Pagamento deve estar 'pago' para confirmar entrega",
+//                 codigo: "STATUS_INVALIDO",
+//                 status_atual: pag.status_pagamento,
+//                 explicacao: "Apenas pagamentos já processados podem ter entrega confirmada"
+//             });
+//         }
+
+//         // 3. VERIFICAR SE JÁ FOI CONFIRMADO
+//         if (pag.data_liberacao) {
+//             return res.status(400).json({
+//                 erro: "Entrega já foi confirmada anteriormente",
+//                 codigo: "JA_CONFIRMADO",
+//                 data_confirmacao_anterior: pag.data_liberacao
+//             });
+//         }
+
+//         // 4. VALIDAR ENTREGA (se existir registro)
+//         if (pag.id_entrega) {
+//             if (pag.estado_entrega === 'entregue') {
+//                 return res.status(400).json({
+//                     erro: "Entrega já foi marcada como 'entregue'",
+//                     codigo: "ENTREGA_JA_CONFIRMADA",
+//                     estado_atual: pag.estado_entrega
+//                 });
+//             }
+//         }
+
+//         // 5. VERIFICAR PERMISSÕES DO USUÁRIO CONFIRMADOR
+//         const [usuario_confirmador] = await conexao.promise().query(
+//             "SELECT nome, tipo_usuario FROM usuarios WHERE id_usuario = ?",
+//             [confirmado_por]
+//         );
+
+//         if (usuario_confirmador.length === 0) {
+//             return res.status(400).json({ 
+//                 erro: "Usuário confirmador não encontrado",
+//                 codigo: "CONFIRMADOR_NAO_ENCONTRADO"
+//             });
+//         }
+
+//         const { nome: nome_confirmador, tipo_usuario: tipo_confirmador } = usuario_confirmador[0];
+
+//         // Verificar se tem permissão para confirmar
+//         const podeConfirmar = (
+//             confirmado_por == pag.id_comprador || // Comprador pode confirmar
+//             tipo_confirmador === 'Administrador' || // Admin pode confirmar
+//             tipo_confirmador === 'Moderador' || // Moderador pode confirmar
+//             (id_transportadora && confirmado_por == id_transportadora) // Transportadora pode confirmar
+//         );
+
+//         if (!podeConfirmar) {
+//             return res.status(403).json({ 
+//                 erro: "Permissão negada para confirmar entrega",
+//                 codigo: "PERMISSAO_NEGADA",
+//                 explicacao: "Apenas o comprador, transportadora, administradores ou moderadores podem confirmar"
+//             });
+//         }
+
+//         console.log(`✅ Permissão aprovada - ${nome_confirmador} (${tipo_confirmador})`);
+
+//         // 6. CALCULAR DIVISÃO DE VALORES (baseado nos dados reais da simulação)
+//         const valorBruto = parseFloat(pag.valor_bruto);
+//         const valorTaxa = parseFloat(pag.valor_taxa);
+//         const valorLiquido = parseFloat(pag.valor_liquido);
+        
+//         // Calcular comissão da plataforma (5% do valor líquido, por exemplo)
+//         const percentualComissao = 3; // 3% para a plataforma
+//         const valorComissaoPlataforma = Math.round((valorLiquido * percentualComissao) / 100);
+//         const valorFinalVendedor = valorLiquido - valorComissaoPlataforma;
+
+//         const distribuicao = {
+//             valor_original: valorBruto,
+//             taxa_provedor: valorTaxa,
+//             valor_liquido_total: valorLiquido,
+//             comissao_plataforma: valorComissaoPlataforma,
+//             valor_final_vendedor: valorFinalVendedor
+//         };
+
+//         console.log("💰 Distribuição calculada:", distribuicao);
+
+//         // 7. BUSCAR CONTA VIRTUAL DO VENDEDOR PARA CREDITAR
+//         const [contaVendedor] = await conexao.promise().query(`
+//             SELECT * FROM contas_virtuais 
+//             WHERE id_usuario = ?
+//             ORDER BY id DESC
+//             LIMIT 1
+//         `, [pag.id_vendedor]);
+
+//         if (contaVendedor.length === 0) {
+//             return res.status(404).json({
+//                 erro: "Conta virtual do vendedor não encontrada",
+//                 codigo: "CONTA_VENDEDOR_NAO_ENCONTRADA",
+//                 dica: "O vendedor precisa ter uma conta virtual criada"
+//             });
+//         }
+
+//         const conta = contaVendedor[0];
+//         const saldoAnteriorVendedor = parseFloat(conta.saldo) || 0;
+//         const novoSaldoVendedor = saldoAnteriorVendedor + valorFinalVendedor;
+
+//         // 8. INICIAR TRANSAÇÃO PARA ATOMICIDADE
+//         await conexao.promise().beginTransaction();
+
+//         try {
+//             // Atualizar status do pagamento para 'liberado'
+//             await conexao.promise().query(`
+//                 UPDATE pagamentos 
+//                 SET status_pagamento = 'liberado', 
+//                     data_liberacao = NOW(), 
+//                     confirmado_por = ?, 
+//                     metodo_confirmacao = ?,
+//                     observacoes_liberacao = ?
+//                 WHERE transacao_id = ?
+//             `, [
+//                 confirmado_por, 
+//                 metodo_confirmacao, 
+//                 `Entrega confirmada por ${nome_confirmador}. Valores distribuídos automaticamente.`,
+//                 transacao_id
+//             ]);
+
+//             // Creditar valor na conta do vendedor
+//             await conexao.promise().query(`
+//                 UPDATE contas_virtuais 
+//                 SET saldo = ?
+//                 WHERE id = ?
+//             `, [novoSaldoVendedor, conta.id]);
+
+//             // Registrar movimento na conta do vendedor
+//             await conexao.promise().query(`
+//                 INSERT INTO movimentacoes_conta_virtual (conta_virtual_id, tipo, valor, descricao)
+//                 VALUES (?, 'credito', ?, ?)
+//             `, [
+//                 conta.id, 
+//                 valorFinalVendedor, 
+//                 `💰 Entrega confirmada - Ref: ${pag.referencia_pagamento} (Transação: ${transacao_id})`
+//             ]);
+
+//             // Atualizar entrega (se existir)
+//             if (pag.id_entrega) {
+//                 await conexao.promise().query(`
+//                     UPDATE entregas 
+//                     SET estado_entrega = 'entregue', 
+//                         data_entrega = NOW()
+//                     WHERE id = ?
+//                 `, [pag.id_entrega]);
+//             }
+
+//             // Registrar distribuição no histórico
+//             await conexao.promise().query(`
+//                 INSERT INTO historico_distribuicoes 
+//                 (transacao_id, id_pagamento, destinatario_id, destinatario_nome, tipo_destinatario, 
+//                  valor_distribuido, descricao, metodo_distribuicao, data_distribuicao, status_distribuicao)
+//                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'concluida')
+//             `, [
+//                 transacao_id,
+//                 pag.id,
+//                 pag.id_vendedor,
+//                 pag.nome_vendedor,
+//                 'vendedor',
+//                 valorFinalVendedor,
+//                 'Pagamento pela venda após confirmação de entrega',
+//                 'credito_conta_virtual'
+//             ]);
+
+//             // Confirmar todas as operações
+//             await conexao.promise().commit();
+
+//             console.log(`🎉 CONFIRMAÇÃO CONCLUÍDA - Transação: ${transacao_id}`);
+//             console.log(`   • Vendedor ${pag.nome_vendedor}: +${valorFinalVendedor} AKZ`);
+//             console.log(`   • Plataforma: +${valorComissaoPlataforma} AKZ (comissão)`);
+
+//             // RESPOSTA DE SUCESSO
+//             return res.json({
+//                 sucesso: true,
+//                 mensagem: "🎉 Entrega confirmada! Valores distribuídos com sucesso!",
+//                 timestamp: new Date().toISOString(),
+//                 confirmacao: {
+//                     transacao_id: transacao_id,
+//                     referencia_pagamento: pag.referencia_pagamento,
+//                     confirmado_por: `${nome_confirmador} (${tipo_confirmador})`,
+//                     data_confirmacao: new Date().toISOString(),
+//                     metodo_confirmacao: metodo_confirmacao
+//                 },
+//                 distribuicao_realizada: {
+//                     valor_original_pago: valorBruto,
+//                     taxa_provedor_deduzida: valorTaxa,
+//                     valor_liquido_disponivel: valorLiquido,
+//                     comissao_plataforma: valorComissaoPlataforma,
+//                     valor_creditado_vendedor: valorFinalVendedor,
+//                     percentual_comissao: `${percentualComissao}%`
+//                 },
+//                 participantes: {
+//                     comprador: {
+//                         nome: pag.nome_comprador,
+//                         status: "✅ Produto entregue confirmado"
+//                     },
+//                     vendedor: {
+//                         nome: pag.nome_vendedor,
+//                         valor_recebido: valorFinalVendedor,
+//                         saldo_anterior: saldoAnteriorVendedor,
+//                         saldo_atual: novoSaldoVendedor,
+//                         status: "💰 Pagamento creditado na conta virtual"
+//                     },
+//                     plataforma: {
+//                         comissao_retida: valorComissaoPlataforma,
+//                         status: "💼 Comissão processada"
+//                     }
+//                 },
+//                 entrega_info: pag.id_entrega ? {
+//                     id_entrega: pag.id_entrega,
+//                     estado_anterior: pag.estado_entrega,
+//                     estado_atual: 'entregue',
+//                     transportadora: pag.transportadora_nome || 'Não especificada'
+//                 } : {
+//                     observacao: "Sem registro de entrega - Confirmação manual"
+//                 },
+//                 conta_vendedor: {
+//                     id_conta: conta.id,
+//                     numero_africell: conta.numero_africell,
+//                     numero_unitel: conta.numero_Unitel,
+//                     operadora: conta.operadora,
+//                     movimento_registrado: true
+//                 },
+//                 proximos_passos: [
+//                     "O vendedor pode consultar seu novo saldo",
+//                     "Extrato de movimentos foi atualizado",
+//                     "Comissão da plataforma foi processada",
+//                     "Transação marcada como 'liberada'"
+//                 ]
+//             });
+
+//         } catch (errorTransacao) {
+//             // Reverter todas as operações em caso de erro
+//             await conexao.promise().rollback();
+//             console.error("❌ Erro durante transação, rollback executado:", errorTransacao);
+//             throw errorTransacao;
+//         }
+
+//     } catch (error) {
+//         console.error("❌ ERRO ao confirmar entrega:", error);
+//         console.error("❌ Stack trace:", error.stack);
+        
+//         return res.status(500).json({ 
+//             erro: "Erro interno ao confirmar entrega e distribuir valores",
+//             codigo: "ERRO_CONFIRMACAO",
+//             transacao_id: transacao_id,
+//             detalhe: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno do servidor',
+//             timestamp: new Date().toISOString(),
+//             sugestao: "Verifique os logs do sistema e tente novamente"
+//         });
+//     }
+// });
+
+
+router.post("/confirmar-entrega/:pedido_id", autenticarToken, async (req, res) => {
+    const { pedido_id } = req.params;
+    const usuario_id = req.usuario.id_usuario;
 
     try {
-        // 1. BUSCAR PAGAMENTO E ENTREGA
+        // 1. Verificar se foi pago
         const [pagamento] = await conexao.promise().query(`
-                    SELECT p.*, 
-            u_comprador.nome as nome_comprador,
-            u_vendedor.nome as nome_vendedor, 
-            u_vendedor.tipo_usuario as tipo_vendedor,
-            e.id_entregas,
-            e.estado_entrega,
-            e.transportadora,
-            e.transportadora_id as entrega_transportadora_id
-        FROM pagamentos p
-        JOIN usuarios u_comprador ON p.id_comprador = u_comprador.id_usuario
-        JOIN usuarios u_vendedor ON p.id_vendedor = u_vendedor.id_usuario
-        LEFT JOIN entregas e ON p.id_pedido = e.pedidos_id
-        LIMIT 1
-        `, [transacao_id]);
+            SELECT * FROM pagamentos WHERE id_pedido = ? AND status_pagamento = 'pago'
+        `, [pedido_id]);
 
         if (pagamento.length === 0) {
-            return res.status(404).json({ mensagem: "Transação não encontrada" });
-        }
-
-        const pag = pagamento[0];
-
-        // 2. VALIDAR STATUS DO PAGAMENTO
-        if (pag.status_pagamento !== STATUS_PAGAMENTO.RETIDO) {
             return res.status(400).json({ 
-                mensagem: "❌ Pagamento deve estar RETIDO para ser liberado",
-                status_atual: pag.status_pagamento,
-                explicacao: "Apenas pagamentos retidos na conta NzoAgro podem ser distribuídos"
+                erro: "Pedido não foi pago ainda",
+                codigo: "NAO_PAGO"
             });
         }
 
-        // 3. VALIDAR ENTREGA (se existir)
-        if (pag.id_entregas) {
-            if (pag.estado_entrega === 'entregue') {
-                return res.status(400).json({
-                    mensagem: "❌ Entrega já foi confirmada anteriormente",
-                    estado_atual: pag.estado_entrega
-                });
-            }
-            
-            if (!['aguardando retirada', 'em rota'].includes(pag.estado_entrega)) {
-                return res.status(400).json({
-                    mensagem: "❌ Entrega deve estar 'em rota' ou 'aguardando retirada' para ser confirmada",
-                    estado_atual: pag.estado_entrega
-                });
-            }
-        }
+        // 2. Buscar contato do usuário
+        const [usuario] = await conexao.promise().query(`
+            SELECT contacto FROM usuarios WHERE id_usuario = ?
+        `, [usuario_id]);
 
-        // 4. VERIFICAR PERMISSÕES
-        const [usuario_confirmador] = await conexao.promise().query(
-            "SELECT nome, tipo_usuario FROM usuarios WHERE id_usuario = ?",
-            [confirmado_por]
-        );
-
-        if (usuario_confirmador.length === 0) {
-            return res.status(400).json({ mensagem: "Usuário confirmador não encontrado" });
-        }
-
-        const { nome: nome_confirmador, tipo_usuario: tipo_confirmador } = usuario_confirmador[0];
-
-        const podeConfirmar = (
-            confirmado_por == pag.id_comprador || 
-            tipo_confirmador === 'Administrador' ||
-            tipo_confirmador === 'Moderador' ||
-            (id_transportadora && confirmado_por == id_transportadora)
-        );
-
-        if (!podeConfirmar) {
-            return res.status(403).json({ 
-                mensagem: "❌ Permissão negada",
-                explicacao: "Apenas o comprador, transportadora, administradores ou moderadores podem confirmar a entrega"
+        if (usuario.length === 0) {
+            return res.status(400).json({ 
+                erro: "Usuário não encontrado",
+                codigo: "USUARIO_NAO_ENCONTRADO"
             });
         }
 
-        // 5. USAR TRANSPORTADORA DA ENTREGA OU PARÂMETRO
-        const transportadora_final = id_transportadora || pag.entrega_transportadora_id;
+        const contacto_cliente = usuario[0].contacto;
+                
+        await conexao.promise().query(`
+            UPDATE pedidos
+            SET estado = 'entregue', data_confirmacao = NOW()
+            WHERE id_pedido = ?
+        `, [pedido_id]);
+          
+        // 3. Marcar entrega como 'entregue' preenchendo campos obrigatórios
+        await conexao.promise().query(`
+            UPDATE entregas 
+            SET estado_entrega = 'entregue', 
+                data_entrega = NOW(), 
+                transportadora = 'Transportadora Principal',
+                contacto_cliente = ?,
+                transportadora_id = 2,
+                confirmado_por_usuario = ?
+            WHERE pedidos_id = ?
+        `, [contacto_cliente, usuario_id, pedido_id]);
 
-        // 6. DISTRIBUIR OS VALORES AUTOMATICAMENTE
-        const distribuicoesRealizadas = [];
-        
-        // Vendedor
-        distribuicoesRealizadas.push({
-            destinatario: pag.nome_vendedor,
-            tipo: 'Vendedor',
-            valor: pag.valor_liquido, 
-            descricao: 'Pagamento pela venda (transferido da conta NzoAgro)',
-            metodo_transferencia: 'Transferência via Unitel Money/Africell Money'
+        // 4. Liberar valores para vendedor
+        await conexao.promise().query(`
+            UPDATE pagamentos 
+            SET status_pagamento = 'liberado', data_liberacao = NOW()
+            WHERE id_pedido = ?
+        `, [pedido_id]);
+
+        res.json({
+            sucesso: true,
+            message: "Entrega confirmada! Valores liberados para o vendedor."
         });
-
-        // Transportadora (se especificada)
-        if (transportadora_final && pag.valor_frete_base > 0) {
-    const [transportadora] = await conexao.promise().query(
-        "SELECT nome FROM transportadoras WHERE id = ?", 
-        [transportadora_final]
-    );
-
-            if (transportadora.length > 0) {
-                distribuicoesRealizadas.push({
-                    destinatario: transportadora[0].nome,
-                    tipo: 'Transportadora',
-                    valor: pag.valor_frete_base,
-                    descricao: 'Pagamento do frete (transferido da conta NzoAgro)',
-                    metodo_transferencia: 'Transferência via Unitel Money/Africell Money'
-                });
-            }
-        }
-
-        // Comissões da plataforma
-        distribuicoesRealizadas.push({
-            destinatario: 'NzoAgro Platform Ltd',
-            tipo: 'Plataforma',
-            valor: pag.valor_comissao,
-            descricao: 'Comissão da plataforma (permanece na conta NzoAgro)',
-            metodo_transferencia: 'Retenção na conta centralizada'
-        });
-
-        if (pag.valor_comissao_frete > 0) {
-            distribuicoesRealizadas.push({
-                destinatario: 'NzoAgro Platform Ltd',
-                tipo: 'Comissão Transporte',
-                valor: pag.valor_comissao_frete,
-                descricao: 'Comissão sobre frete (permanece na conta NzoAgro)',
-                metodo_transferencia: 'Retenção na conta centralizada'
-            });
-        }
-
-        // 7. INICIAR TRANSAÇÃO
-        await conexao.promise().beginTransaction();
-
-        try {
-            // Atualizar pagamento
-            await conexao.promise().query(`
-                UPDATE pagamentos 
-                SET status_pagamento = ?, data_liberacao = NOW(), 
-                    confirmado_por = ?, metodo_confirmacao = ?,
-                    observacoes_liberacao = ?
-                WHERE transacao_id = ?
-            `, [
-                STATUS_PAGAMENTO.LIBERADO, 
-                confirmado_por, 
-                metodo_confirmacao, 
-                `Entrega confirmada. Valores distribuídos automaticamente via conta centralizada NzoAgro.`,
-                transacao_id
-            ]);
-
-            // Atualizar entrega (se existir)
-            if (pag.id_entregas) {
-                await conexao.promise().query(`
-                    UPDATE entregas 
-                    SET estado_entrega = 'entregue', 
-                        data_entrega = NOW()
-                    WHERE id_entregas = ?
-                `, [pag.id_entregas]);
-            }
-
-            // Registrar histórico de distribuições
-            const historicoPromises = distribuicoesRealizadas.map(async (dist) => {
-                return conexao.promise().query(`
-                    INSERT INTO historico_distribuicoes 
-                    (transacao_id, destinatario, tipo_destinatario, valor, descricao, 
-                     metodo_transferencia, data_distribuicao, status_distribuicao)
-                    VALUES (?, ?, ?, ?, ?, ?, NOW(), 'concluida')
-                `, [
-                    transacao_id, dist.destinatario, dist.tipo, 
-                    dist.valor, dist.descricao, dist.metodo_transferencia
-                ]);
-            });
-
-            await Promise.all(historicoPromises);
-
-            // Confirmar transação
-            await conexao.promise().commit();
-
-            console.log(`🎉 DISTRIBUIÇÃO AUTOMÁTICA CONCLUÍDA para transação ${transacao_id}:`);
-            distribuicoesRealizadas.forEach(dist => {
-                console.log(`   • ${dist.destinatario} (${dist.tipo}): ${dist.valor} AKZ`);
-            });
-
-            return res.json({
-                mensagem: "🎉 Entrega confirmada! Divisão automática de valores concluída com sucesso!",
-                confirmacao: {
-                    transacao_id,
-                    confirmado_por: `${nome_confirmador} (${tipo_confirmador})`,
-                    data_liberacao: new Date().toISOString(),
-                    metodo: metodo_confirmacao,
-                    total_distribuido: distribuicoesRealizadas.reduce((sum, dist) => sum + dist.valor, 0),
-                    entrega_atualizada: pag.id_entregas ? "✅ Estado alterado para 'entregue'" : "ℹ️ Sem registro de entrega"
-                },
-                participantes_beneficiados: {
-                    comprador: `${pag.nome_comprador} - Produto entregue com sucesso`,
-                    vendedor: `${pag.nome_vendedor} - Recebeu ${pag.valor_liquido} AKZ`,
-                    transportadora: transportadora_final ? `Recebeu ${pag.valor_frete_base} AKZ` : 'Não especificada',
-                    plataforma: `NzoAgro reteve ${pag.valor_comissao + (pag.valor_comissao_frete || 0)} AKZ em comissões`
-                },
-                distribuicoes_realizadas: distribuicoesRealizadas,
-                entrega_info: pag.id_entregas ? {
-                    id_entrega: pag.id_entregas,
-                    estado_anterior: pag.estado_entrega,
-                    estado_atual: 'entregue',
-                    transportadora: pag.transportadora,
-                    data_confirmacao: new Date().toISOString()
-                } : null,
-                resumo_financeiro: {
-                    valor_original_pago: pag.valor_bruto,
-                    valor_distribuido_vendedor: pag.valor_liquido,
-                    valor_distribuido_frete: pag.valor_frete_base || 0,
-                    comissao_plataforma_total: pag.valor_comissao + (pag.valor_comissao_frete || 0),
-                    taxa_provedor_deduzida: pag.valor_taxa,
-                    peso_processado: `${pag.peso_total || 0}kg`,
-                    tipo_usuario: pag.usuario_premium ? 'Premium' : 'Padrão'
-                }
-            });
-
-        } catch (error) {
-            // Reverter transação em caso de erro
-            await conexao.promise().rollback();
-            throw error;
-        }
 
     } catch (error) {
-        console.error("❌ Erro ao confirmar entrega e distribuir valores:", error);
-        return res.status(500).json({ 
-            mensagem: "Erro ao confirmar entrega e processar distribuição automática", 
-            erro: error.message,
-            transacao_id: transacao_id,
-            sugestao: "Verifique os logs do sistema e tente novamente"
-        });
+        res.status(500).json({ message: "Erro ao confirmar entrega", detalhes: error });
     }
 });
-
 
 
 router.post("/solicitar-reembolso/:transacao_id", autenticarToken, async (req, res) => {

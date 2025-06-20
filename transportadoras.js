@@ -380,7 +380,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
 
         // Atualizar estado do pedido
         await conexao.promise().query(
-            "UPDATE pedidos SET estado = 'aguardando retirada' WHERE id_pedido = ?",
+            "UPDATE pedidos SET estado = 'em trânsito' WHERE id_pedido = ?",
             [pedidos_id]
         );
 
@@ -508,8 +508,6 @@ console.log(`✅ Cliente ${entrega.id_usuario} notificado sobre entrega do pedid
         res.status(500).json({ erro: "Erro ao finalizar entrega." });
     }
 });
-
-// ===== ROTA PARA CLIENTES CONSULTAREM NOTIFICAÇÕES =====
 
 /**
  * Buscar notificações do cliente
