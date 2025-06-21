@@ -335,7 +335,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
         // Buscar informações da filial escolhida
         const [filialInfo] = await conexao.promise().query(`
             SELECT 
-                id_filial,
+                id,
                 provincia,
                 bairro,
                 descricao,
@@ -343,7 +343,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
                        CASE WHEN descricao IS NOT NULL THEN CONCAT(' (', descricao, ')') ELSE '' END
                 ) as endereco_completo
             FROM filiais_transportadora 
-            WHERE id_filial = ? AND transportadora_id = ?
+            WHERE id = ? AND transportadora_id = ?
         `, [filial_retirada_id, transportadora_id]);
 
         if (filialInfo.length === 0) {
@@ -380,7 +380,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
 
         // Atualizar estado do pedido
         await conexao.promise().query(
-            "UPDATE pedidos SET estado = 'em trânsito' WHERE id_pedido = ?",
+            "UPDATE pedidos SET estado = 'aguardando retirada' WHERE id_pedido = ?",
             [pedidos_id]
         );
 
@@ -411,11 +411,11 @@ await notificar(pedido.id_usuario, mensagemCliente, {
 
 console.log(`✅ Cliente ${pedido.id_usuario} notificado sobre pedido ${pedidos_id} pronto para retirada`);
 
-        // Salvar notificação no banco (para histórico)
-        await conexao.promise().query(`
-            INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)
-            VALUES (?, 'pedido_pronto', 'Pedido Pronto para Retirada', ?, 0)
-        `, [pedido.id_usuario, mensagemCliente]);
+        // // Salvar notificação no banco (para histórico)
+        // await conexao.promise().query(`
+        //     INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)
+        //     VALUES (?, 'pedido_pronto', 'Pedido Pronto para Retirada', ?, 0)
+        // `, [pedido.id_usuario, mensagemCliente]);
 
         res.status(201).json({
             mensagem: "Pedido aceito e cliente notificado com sucesso!",
