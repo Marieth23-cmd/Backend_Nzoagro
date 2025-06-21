@@ -920,8 +920,7 @@ router.get("/exportar/vendas/csv", autenticarToken, autorizarUsuario(["Administr
     }
 });
 
-// Atualizar status do pedido (para o endpoint que você tem no frontend)
-// Você pode adicionar isso em um arquivo separado de pedidos se preferir
+
 router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador", "Agricultor", "Fornecedor"]), async (req, res) => {
     const { pedidoId } = req.params;
     const { status } = req.body;

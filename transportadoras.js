@@ -553,13 +553,17 @@ router.get("/minhas-notificacoes", autenticarToken, async (req, res) => {
 
 
 
+
+
+
+
 router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
     try {
         // Busca pedidos em trânsito para coleta nas províncias onde a transportadora tem filiais
         const transportadora_id = req.usuario.id_usuario;
         
         const [pedidosProntos] = await conexao.promise().query(`
-            SELECT DISTINCT
+            SELECT 
                 p.id_pedido,
                 p.valor_total,
                 p.estado,
@@ -589,7 +593,19 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
                 FROM entregas 
                 WHERE transportadora_id = ?
             )
-            GROUP BY p.id_pedido
+            GROUP BY 
+                p.id_pedido,
+                p.valor_total,
+                p.estado,
+                p.data_pedido,
+                u.nome,
+                u.contacto,
+                ep.rua,
+                ep.bairro,
+                ep.municipio,
+                ep.provincia,
+                ep.referencia,
+                ep.numero
             ORDER BY p.data_pedido DESC
         `, [transportadora_id, transportadora_id]);
 
@@ -611,10 +627,6 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao buscar pedidos em trânsito." });
     }
 });
-
-
-
-
 
 
 module.exports = router;
