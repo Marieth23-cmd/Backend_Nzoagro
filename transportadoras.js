@@ -356,7 +356,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
 
         // Buscar nome da transportadora
         const [transportadoraInfo] = await conexao.promise().query(
-            "SELECT nome, contacto FROM transportadoras WHERE id = ?",
+            "SELECT nome, contacto FROM transportadoras WHERE id =2",
             [transportadora_id]
         );
 
@@ -368,15 +368,16 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
         await conexao.promise().query(`
             INSERT INTO entregas 
             (data_entrega, estado_entrega, pedidos_id, endereco, contacto_cliente, 
-             transportadora_id, filial_retirada_id, observacoes)
+             transportadora_id, filial_retirada_id, observacoes, transportadora)
             VALUES 
-            (NOW(), 'aguardando retirada', ?, ?, ?, ?, ?, ?)
+            (NOW(), 'aguardando retirada', ?, ?, ?, ?, ?, ?,?)
         `, [
             pedidos_id,
             filial.endereco_completo,
             pedido.cliente_telefone,
             transportadora_id,
             filial_retirada_id,
+             transportadora.nome,
             observacoes || null
         ]);
 
