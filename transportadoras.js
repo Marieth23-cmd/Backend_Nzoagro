@@ -149,12 +149,13 @@ router.get("/minhas-entregas", autenticarToken, async (req, res) => {
         const [entregas] = await conexao.promise().query(
             `SELECT e.*, p.* 
                FROM entregas e
-               LEFT JOIN pedidos p ON e.pedidos_id = p.id
+               LEFT JOIN pedidos p ON e.pedidos_id = p.id_pedido
              WHERE e.transportadora_id = ?`,
             [transportadora_id]
         );
         res.json({ entregas });
-    } catch (erro) {
+    } catch (error) {
+        console.log("erro ao buscar minhas entregas:" , error)
         res.status(500).json({ erro: "Erro ao buscar entregas." });
     }
 });
@@ -176,7 +177,8 @@ router.get("/entregas-pendentes", autenticarToken, async (req, res) => {
             return res.status(404).json({ mensagem: "Nenhuma entrega pendente encontrada." });
         }
         res.json({ entregas });
-    } catch (erro) {
+    } catch (error) {
+        console.log("erro ao carregar minhas entregas pendentes :" , error)
         res.status(500).json({ erro: "Erro ao buscar entregas pendentes." });
     }
 });
