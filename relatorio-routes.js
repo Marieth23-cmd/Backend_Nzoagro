@@ -921,7 +921,7 @@ router.get("/exportar/vendas/csv", autenticarToken, autorizarUsuario(["Administr
 });
 
 
-router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador", "Agricultor", "Fornecedor"]), async (req, res) => {
+router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador"]), async (req, res) => {
     const { pedidoId } = req.params;
     const { status } = req.body;
     const usuarioId = req.usuario.id_usuario;

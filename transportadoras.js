@@ -102,7 +102,7 @@ router.post("/cadastrar-filial", autenticarToken, async (req, res) => {
              VALUES (?, ?, ?, ?)`,
             [transportadora_id, provincia, bairro || null, descricao || null]
         );
-        res.status(201).json({ mensagem: "Filial cadastrada com sucesso." });
+        res.status(201).json({ sucesso: "Filial cadastrada com sucesso." });
     } catch (erro) {
         res.status(500).json({ erro: "Erro ao cadastrar filial." });
     }

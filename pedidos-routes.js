@@ -600,76 +600,76 @@ setInterval(limparPedidosExpirados, 30 * 60 * 1000);
 
 
 
-router.delete("/:id_pedido", autenticarToken, async (req, res) => {
-    const id_pedido = req.params.id_pedido;
-    const id_usuario_que_excluiu = req.usuario.id_usuario;
+// router.delete("/:id_pedido", autenticarToken, async (req, res) => {
+//     const id_pedido = req.params.id_pedido;
+//     const id_usuario_que_excluiu = req.usuario.id_usuario;
   
-    try {
-      // Buscar o pedido antes de deletar para recuperar o id do destinatário
-      const [pedido] = await conexao.promise().query(`
-        SELECT id_usuario FROM pedidos WHERE id_pedido = ?
-      `, [id_pedido]);
+//     try {
+//       // Buscar o pedido antes de deletar para recuperar o id do destinatário
+//       const [pedido] = await conexao.promise().query(`
+//         SELECT id_usuario FROM pedidos WHERE id_pedido = ?
+//       `, [id_pedido]);
   
-      if (!pedido || pedido.length === 0) {
-        return res.status(404).json({ message: "Pedido não encontrado." });
-      }
+//       if (!pedido || pedido.length === 0) {
+//         return res.status(404).json({ message: "Pedido não encontrado." });
+//       }
   
-      const id_destinatario = pedido[0].id_usuario;
+//       const id_destinatario = pedido[0].id_usuario;
 
-      if (id_usuario_que_excluiu !== id_destinatario && req.usuario.tipo_usuario !== 'Administrador') {
-        return res.status(403).json({ message: "Você não tem permissão para excluir este pedido." });
-    }
+//       if (id_usuario_que_excluiu !== id_destinatario && req.usuario.tipo_usuario !== 'Administrador') {
+//         return res.status(403).json({ message: "Você não tem permissão para excluir este pedido." });
+//     }
     
-      // Excluir itens relacionados
-      await conexao.promise().query(`
-        DELETE FROM itens_pedido WHERE pedidos_id = ?
-      `, [id_pedido]);
+//       // Excluir itens relacionados
+//       await conexao.promise().query(`
+//         DELETE FROM itens_pedido WHERE pedidos_id = ?
+//       `, [id_pedido]);
   
-      await conexao.promise().query(`
-        DELETE FROM endereco_pedidos WHERE id_pedido = ?
-      `, [id_pedido]);
+//       await conexao.promise().query(`
+//         DELETE FROM endereco_pedidos WHERE id_pedido = ?
+//       `, [id_pedido]);
   
-      // Excluir o pedido
-      const [resultado] = await conexao.promise().query(`
-        DELETE FROM pedidos WHERE id_pedido = ?
-      `, [id_pedido]);
+//       // Excluir o pedido
+//       const [resultado] = await conexao.promise().query(`
+//         DELETE FROM pedidos WHERE id_pedido = ?
+//       `, [id_pedido]);
   
-      if (resultado.affectedRows === 0) {
-        return res.status(404).json({ message: "Pedido não encontrado ao tentar deletar." });
-      }
+//       if (resultado.affectedRows === 0) {
+//         return res.status(404).json({ message: "Pedido não encontrado ao tentar deletar." });
+//       }
   
-      // Notificar o usuário que excluiu
-      io.to(`usuario_${id_usuario_que_excluiu}`).emit("pedido_excluido", {
-        id_pedido,
-        message: "Você excluiu um pedido."
-      });
+//       // Notificar o usuário que excluiu
+//       io.to(`usuario_${id_usuario_que_excluiu}`).emit("pedido_excluido", {
+//         id_pedido,
+//         message: "Você excluiu um pedido."
+//       });
   
-      // Notificar o destinatário (agricultor ou fornecedor)
-      io.to(`usuario_${id_destinatario}`).emit("pedido_excluido", {
-        id_pedido,
-        message: "Este pedido destinado a você foi excluído."
-      });
+//       // Notificar o destinatário (agricultor ou fornecedor)
+//       io.to(`usuario_${id_destinatario}`).emit("pedido_excluido", {
+//         id_pedido,
+//         message: "Este pedido destinado a você foi excluído."
+//       });
   
-      // Buscar todos os administradores
-      const [admins] = await conexao.promise().query(`
-        SELECT id_usuario FROM usuarios WHERE tipo_usuario = 'Administrador'
-      `);
+//       // Buscar todos os administradores
+//       const [admins] = await conexao.promise().query(`
+//         SELECT id_usuario FROM usuarios WHERE tipo_usuario = 'Administrador'
+//       `);
   
-      // Notificar todos os administradores
-      admins.forEach((admin) => {
-        io.to(`usuario_${admin.id_usuario}`).emit("pedido_excluido", {
-          id_pedido,
-          message: "Este pedido foi excluído da plataforma."
-        });
-      });
+//       // Notificar todos os administradores
+//       admins.forEach((admin) => {
+//         io.to(`usuario_${admin.id_usuario}`).emit("pedido_excluido", {
+//           id_pedido,
+//           message: "Este pedido foi excluído da plataforma."
+//         });
+//       });
   
-      res.status(200).json({ message: "Pedido excluído com sucesso!" });
+//       res.status(200).json({ message: "Pedido excluído com sucesso!" });
   
-    } catch (error) {
-      console.log("Erro ao excluir pedido:", error);
-      res.status(500).json({ message: "Erro ao excluir pedido", error: error.message });
-    }
-  })
+//     } catch (error) {
+//       console.log("Erro ao excluir pedido:", error);
+//       res.status(500).json({ message: "Erro ao excluir pedido", error: error.message });
+//     }
+//   })
 
 
 // Rota para buscar dados específicos do pedido para pagamento
