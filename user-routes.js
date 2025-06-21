@@ -27,46 +27,47 @@ function removerEnderecoSeComprador(usuario) {
 }
 
 
-
 router.get("/", async (req, res) => {
     try {
-        const [usuarios] = await conexao.promise().query(
-         
-                `SELECT
-        user.nome AS Nome, 
-        user.senha AS Senha,
-        user.descricao AS Descrição,
-        COALESCE( user.foto , "Sem Foto") AS Fotografia,
-        user.status AS Status,
-        user.tipo_usuario AS Tipo_de_Usuário,
-        user.email AS Email,
-        user.data_exclusao AS Data_de_Exclusão,
-        COALESCE(user.contacto, 'Sem contacto') AS Contacto,
-            endereco.rua AS Rua,
-            endereco.provincia AS Provincia,
-            endereco.bairro AS Bairro,
-            endereco.municipio AS Municipio,
-            endereco.pais AS Pais
-    FROM usuarios user
-    LEFT JOIN endereco ON user.id_usuario= endereco.id_usuario  WHERE user.status="ativo" `
-        ); 
+        const [usuarios] = await conexao.promise().query(`
+            SELECT 
+                user.id_usuario,
+                user.nome,
+                user.email,
+                user.tipo_usuario,
+                user.status,
+                user.data_criacao,
+                user.contacto,
+                endereco.provincia,
+                endereco.bairro
+            FROM usuarios user
+            LEFT JOIN endereco ON user.id_usuario = endereco.id_usuario
+            WHERE user.status = "ativo"
+        `);
 
-        const usuario = removerEnderecoSeComprador(usuarios[0]);
-
-        // Remove campos com valor null
-        Object.keys(usuario).forEach(key => {
-            if (usuario[key] === null) {
-                delete usuario[key];
-            }
+        // Processar todos os usuários, não apenas o primeiro
+        const usuariosProcessados = usuarios.map(usuario => {
+            // Remove campos null
+            Object.keys(usuario).forEach(key => {
+                if (usuario[key] === null) {
+                    delete usuario[key];
+                }
+            });
+            return usuario;
         });
-        
-        res.json({ message: `Detalhes do usuário `, usuario });
-        
 
-       } catch (error) {
+        res.json({ 
+            message: "Lista de usuários", 
+            usuarios: usuariosProcessados // Retorna array
+        });
+
+    } catch (error) {
         res.status(500).json({ message: "Erro ao buscar usuários", error });
     }
 });
+
+
+
 
 router.get("/me",autenticarToken, async (req, res) => {
     const userid = req.usuario.id_usuario;

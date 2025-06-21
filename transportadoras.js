@@ -552,4 +552,71 @@ router.get("/minhas-notificacoes", autenticarToken, async (req, res) => {
 
 
 
+
+
+router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
+    try {
+        // Busca pedidos em trânsito para coleta nas províncias onde a transportadora tem filiais
+        const transportadora_id = req.usuario.id_usuario;
+        
+        const [pedidosProntos] = await conexao.promise().query(`
+            SELECT DISTINCT
+                p.id_pedido,
+                p.valor_total,
+                p.estado,
+                p.data_pedido,
+                u.nome as cliente_nome,
+                u.contacto as cliente_telefone,
+                ep.rua,
+                ep.bairro,
+                ep.municipio,
+                ep.provincia,
+                ep.referencia,
+                ep.numero as cliente_numero,
+                COUNT(ip.id_item) as total_itens,
+                SUM(ip.quantidade_comprada) as total_quantidade
+            FROM pedidos p
+            JOIN usuarios u ON p.id_usuario = u.id_usuario
+            JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
+            JOIN itens_pedido ip ON p.id_pedido = ip.pedidos_id
+            WHERE p.estado = 'em trânsito'  
+            AND ep.provincia IN (
+                SELECT DISTINCT provincia 
+                FROM filiais_transportadora 
+                WHERE transportadora_id = ?
+            )
+            AND p.id_pedido NOT IN (
+                SELECT pedidos_id 
+                FROM entregas 
+                WHERE transportadora_id = ?
+            )
+            GROUP BY p.id_pedido
+            ORDER BY p.data_pedido DESC
+        `, [transportadora_id, transportadora_id]);
+
+        if (pedidosProntos.length === 0) {
+            return res.status(404).json({ 
+                mensagem: "Nenhum pedido em trânsito encontrado.",
+                pedidos: []
+            });
+        }
+
+        res.json({ 
+            mensagem: "Pedidos em trânsito para coleta",
+            total: pedidosProntos.length,
+            pedidos: pedidosProntos 
+        });
+
+    } catch (erro) {
+        console.error("Erro ao buscar pedidos em trânsito:", erro);
+        res.status(500).json({ erro: "Erro ao buscar pedidos em trânsito." });
+    }
+});
+
+
+
+
+
+
+
 module.exports = router;
