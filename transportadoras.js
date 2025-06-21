@@ -414,11 +414,11 @@ await notificar(pedido.id_usuario, mensagemCliente, {
 
 console.log(`✅ Cliente ${pedido.id_usuario} notificado sobre pedido ${pedidos_id} pronto para retirada`);
 
-        // // Salvar notificação no banco (para histórico)
-        // await conexao.promise().query(`
-        //     INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)
-        //     VALUES (?, 'pedido_pronto', 'Pedido Pronto para Retirada', ?, 0)
-        // `, [pedido.id_usuario, mensagemCliente]);
+        // Salvar notificação no banco (para histórico)
+        await conexao.promise().query(`
+            INSERT INTO notificacoes (usuarios_id, tipo, titulo, mensagem, is_lida)
+            VALUES (?, 'pedido_pronto', 'Pedido Pronto para Retirada', ?, 0)
+        `, [pedido.id_usuario, mensagemCliente]);
 
         res.status(201).json({
             mensagem: "Pedido aceito e cliente notificado com sucesso!",
