@@ -553,7 +553,6 @@ router.get("/minhas-notificacoes", autenticarToken, async (req, res) => {
 
 
 
-
 router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
     try {
         // Busca pedidos em trânsito para coleta nas províncias onde a transportadora tem filiais
@@ -573,14 +572,14 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
                 ep.provincia,
                 ep.referencia,
                 ep.numero as cliente_numero,
-                COUNT(ip.id_item) as total_itens,
+                COUNT(ip.id_itens_de_pedido) as total_itens,
                 SUM(ip.quantidade_comprada) as total_quantidade
             FROM pedidos p
             JOIN usuarios u ON p.id_usuario = u.id_usuario
             JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
             JOIN itens_pedido ip ON p.id_pedido = ip.pedidos_id
-            WHERE p.estado = 'em trânsito'  
-            AND ep.provincia IN (
+            WHERE p.estado = 'em trânsito'
+              AND ep.provincia IN (
                 SELECT DISTINCT provincia 
                 FROM filiais_transportadora 
                 WHERE transportadora_id = ?
@@ -596,7 +595,7 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
 
         if (pedidosProntos.length === 0) {
             return res.status(404).json({ 
-                mensagem: "Nenhum pedido em trânsito encontrado.",
+                mensagem: "Nenhum pedido em trânsit encontrado.",
                 pedidos: []
             });
         }
@@ -612,7 +611,6 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao buscar pedidos em trânsito." });
     }
 });
-
 
 
 
