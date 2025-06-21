@@ -311,7 +311,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
             FROM pedidos p
             JOIN usuarios u ON p.id_usuario = u.id_usuario
             JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
-            WHERE p.id_pedido = ? AND p.estado IN ('processado', 'enviado')
+            WHERE p.id_pedido = ? AND p.estado IN ('em trânsito')
         `, [pedidos_id]);
 
         if (pedidoInfo.length === 0) {

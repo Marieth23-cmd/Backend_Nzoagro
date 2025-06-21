@@ -120,6 +120,7 @@ router.get("/vendas/fornecedor", autenticarToken, autorizarUsuario(["Agricultor"
         LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
         WHERE prod.id_usuario = ?
         AND pag.status_pagamento IN ('pago', 'liberado')
+        AND p.estado IN ('processado')
     `;
 
     const params = [fornecedorId];
@@ -921,14 +922,14 @@ router.get("/exportar/vendas/csv", autenticarToken, autorizarUsuario(["Administr
 });
 
 
-router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador"]), async (req, res) => {
+router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador" ,"Fornecedor" ,"Agricultor"]), async (req, res) => {
     const { pedidoId } = req.params;
     const { status } = req.body;
     const usuarioId = req.usuario.id_usuario;
     const tipoUsuario = req.usuario.tipo_usuario;
 
     // Validar status permitidos
-    const statusPermitidos = ['Pendente', 'Confirmado', 'Preparando', 'Enviado', 'Entregue', 'Cancelado', 'Concluído'];
+    const statusPermitidos = ['processado', 'em trânsito'];
     
     if (!statusPermitidos.includes(status)) {
         return res.status(400).json({ mensagem: "Status inválido" });
