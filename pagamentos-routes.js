@@ -1141,6 +1141,7 @@ router.post("/solicitar-reembolso/:transacao_id", autenticarToken, async (req, r
                 "Produto não entregue no prazo",
                 "Produto com defeito/avariado",
                 "Entrega no endereço errado",
+                
                 "Desistência da compra"
             ]
         });
