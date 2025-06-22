@@ -593,7 +593,7 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
             JOIN usuarios u ON p.id_usuario = u.id_usuario
             JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
             JOIN itens_pedido ip ON p.id_pedido = ip.pedidos_id
-            JOIN produtos prod ON ip.id_produtos = prod.id_produtos
+            JOIN produtos prod ON ip.id_produto = prod.id_produtos
             JOIN estoque est ON prod.id_produtos = est.produto_id
             WHERE p.estado = 'em trânsito'
               AND ep.provincia IN (
