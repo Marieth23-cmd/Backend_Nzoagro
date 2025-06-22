@@ -283,8 +283,7 @@ router.get("/filiais-select", autenticarToken, async (req, res) => {
 
 /**
  * Aceitar pedido e notificar cliente sobre filial de retirada
- */
-router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
+ */router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
     const transportadora_id = req.usuario.id_usuario;
     const { pedidos_id, filial_retirada_id, observacoes } = req.body;
     const io = req.io; // Socket.io para notificações em tempo real
@@ -306,7 +305,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
                 p.estado,
                 u.nome as cliente_nome,
                 u.email as cliente_email,
-                u.contacto as cliente_telefone,
+                ep.numero as cliente_telefone,
                 ep.provincia as cliente_provincia,
                 ep.municipio as cliente_municipio,
                 ep.bairro as cliente_bairro
@@ -356,7 +355,7 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
 
         // Buscar nome da transportadora
         const [transportadoraInfo] = await conexao.promise().query(
-            "SELECT nome, contacto FROM transportadoras WHERE id =2",
+            "SELECT nome, contacto FROM transportadoras WHERE id = 2",
             [transportadora_id]
         );
 
@@ -364,21 +363,24 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
         const filial = filialInfo[0];
         const transportadora = transportadoraInfo[0];
 
+        // Usar o número (contacto) da tabela endereco_pedidos
+        const contactoCliente = pedido.cliente_telefone || 'Não informado';
+
         // Registrar a entrega
         await conexao.promise().query(`
             INSERT INTO entregas 
             (data_entrega, estado_entrega, pedidos_id, endereco, contacto_cliente, 
              transportadora_id, filial_retirada_id, observacoes, transportadora)
             VALUES 
-            (NOW(), 'aguardando retirada', ?, ?, ?, ?, ?, ?,?)
+            (NOW(), 'aguardando retirada', ?, ?, ?, ?, ?, ?, ?)
         `, [
             pedidos_id,
             filial.endereco_completo,
-            pedido.cliente_telefone,
+            contactoCliente, 
             transportadora_id,
             filial_retirada_id,
-             transportadora.nome,
-            observacoes || null
+            observacoes || null,
+            transportadora.nome
         ]);
 
         // Atualizar estado do pedido
@@ -394,25 +396,25 @@ router.post("/aceitar-pedido-notificar", autenticarToken, async (req, res) => {
                         `📞 Contato: ${transportadora.contacto}` +
                         (observacoes ? `\n💬 Observações: ${observacoes}` : '');
 
-// Notificação usando await notificar ao invés do Socket.io
-await notificar(pedido.id_usuario, mensagemCliente, {
-    pedido_id: pedidos_id,
-    estado: "aguardando retirada",
-    filial: {
-        endereco: filial.endereco_completo,
-        provincia: filial.provincia,
-        bairro: filial.bairro,
-        descricao: filial.descricao
-    },
-    transportadora: {
-        nome: transportadora.nome,
-        contacto: transportadora.contacto
-    },
-    observacoes: observacoes,
-    timestamp: new Date().toISOString()
-});
+        // Notificação usando await notificar ao invés do Socket.io
+        await notificar(pedido.id_usuario, mensagemCliente, {
+            pedido_id: pedidos_id,
+            estado: "aguardando retirada",
+            filial: {
+                endereco: filial.endereco_completo,
+                provincia: filial.provincia,
+                bairro: filial.bairro,
+                descricao: filial.descricao
+            },
+            transportadora: {
+                nome: transportadora.nome,
+                contacto: transportadora.contacto
+            },
+            observacoes: observacoes,
+            timestamp: new Date().toISOString()
+        });
 
-console.log(`✅ Cliente ${pedido.id_usuario} notificado sobre pedido ${pedidos_id} pronto para retirada`);
+        console.log(`✅ Cliente ${pedido.id_usuario} notificado sobre pedido ${pedidos_id} pronto para retirada`);
 
         // Salvar notificação no banco (para histórico)
         await conexao.promise().query(`
@@ -425,6 +427,7 @@ console.log(`✅ Cliente ${pedido.id_usuario} notificado sobre pedido ${pedidos_
             detalhes: {
                 pedido_id: pedidos_id,
                 cliente: pedido.cliente_nome,
+                cliente_telefone: contactoCliente,
                 filial_retirada: filial.endereco_completo,
                 estado: "aguardando retirada",
                 notificacao_enviada: true

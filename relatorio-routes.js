@@ -922,21 +922,73 @@ router.get("/exportar/vendas/csv", autenticarToken, autorizarUsuario(["Administr
 });
 
 
-router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador" ,"Fornecedor" ,"Agricultor"]), async (req, res) => {
+
+// ============================================
+// BACKEND NODE.JS - Cole no seu arquivo de rotas
+// ============================================
+
+// 1. ADICIONE estas constantes no INÍCIO do arquivo:
+const STATUS_PEDIDO = {
+    PENDENTE: 'pendente',
+    CONFIRMADO: 'confirmado', 
+    PROCESSADO: 'processado',
+    ENVIADO: 'enviado',
+    EM_TRANSITO: 'em trânsito',
+    AGUARDANDO_RETIRADA: 'aguardando retirada',
+    PRONTO: 'pronto',
+    ENTREGUE: 'entregue',
+    CANCELADO: 'cancelado',
+    EXPIRADO: 'expirado'
+};
+
+const TRANSICOES_PERMITIDAS = {
+    'Administrador': {
+        [STATUS_PEDIDO.PENDENTE]: [STATUS_PEDIDO.CONFIRMADO, STATUS_PEDIDO.CANCELADO],
+        [STATUS_PEDIDO.CONFIRMADO]: [STATUS_PEDIDO.PROCESSADO, STATUS_PEDIDO.CANCELADO],
+        [STATUS_PEDIDO.PROCESSADO]: [STATUS_PEDIDO.ENVIADO, STATUS_PEDIDO.PRONTO, STATUS_PEDIDO.CANCELADO],
+        [STATUS_PEDIDO.ENVIADO]: [STATUS_PEDIDO.EM_TRANSITO, STATUS_PEDIDO.ENTREGUE],
+        [STATUS_PEDIDO.EM_TRANSITO]: [STATUS_PEDIDO.ENTREGUE, STATUS_PEDIDO.AGUARDANDO_RETIRADA],
+        [STATUS_PEDIDO.PRONTO]: [STATUS_PEDIDO.AGUARDANDO_RETIRADA, STATUS_PEDIDO.ENTREGUE],
+        [STATUS_PEDIDO.AGUARDANDO_RETIRADA]: [STATUS_PEDIDO.ENTREGUE],
+        [STATUS_PEDIDO.ENTREGUE]: [],
+        [STATUS_PEDIDO.CANCELADO]: [],
+        [STATUS_PEDIDO.EXPIRADO]: []
+    },
+    'Fornecedor': {
+        [STATUS_PEDIDO.CONFIRMADO]: [STATUS_PEDIDO.PROCESSADO],
+        [STATUS_PEDIDO.PROCESSADO]: [STATUS_PEDIDO.ENVIADO, STATUS_PEDIDO.PRONTO],
+        [STATUS_PEDIDO.ENVIADO]: [STATUS_PEDIDO.EM_TRANSITO],
+        [STATUS_PEDIDO.EM_TRANSITO]: [STATUS_PEDIDO.ENTREGUE],
+        [STATUS_PEDIDO.PRONTO]: [STATUS_PEDIDO.ENTREGUE],
+        [STATUS_PEDIDO.AGUARDANDO_RETIRADA]: [STATUS_PEDIDO.ENTREGUE]
+    },
+    'Agricultor': {
+        [STATUS_PEDIDO.CONFIRMADO]: [STATUS_PEDIDO.PROCESSADO],
+        [STATUS_PEDIDO.PROCESSADO]: [STATUS_PEDIDO.PRONTO],
+        [STATUS_PEDIDO.PRONTO]: [STATUS_PEDIDO.ENTREGUE]
+    }
+};
+
+function validarTransicaoStatus(statusAtual, novoStatus, tipoUsuario) {
+    const transicoesPermitidas = TRANSICOES_PERMITIDAS[tipoUsuario];
+    if (!transicoesPermitidas || !transicoesPermitidas[statusAtual]) {
+        return { valido: false, motivo: "Transição não permitida" };
+    }
+    if (!transicoesPermitidas[statusAtual].includes(novoStatus)) {
+        return { valido: false, motivo: `Não pode alterar de '${statusAtual}' para '${novoStatus}'` };
+    }
+    return { valido: true };
+}
+
+// 2. SUBSTITUA sua rota atual por esta:
+router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador", "Fornecedor", "Agricultor"]), async (req, res) => {
     const { pedidoId } = req.params;
     const { status } = req.body;
     const usuarioId = req.usuario.id_usuario;
     const tipoUsuario = req.usuario.tipo_usuario;
 
-    // Validar status permitidos
-    const statusPermitidos = ['processado', 'em trânsito' , 'aguardando retirada' , 'pago',  'entregue' ];
-    
-    if (!statusPermitidos.includes(status)) {
-        return res.status(400).json({ mensagem: "Status inválido" });
-    }
-
     try {
-        // Verificar se o pedido existe
+        // Buscar pedido atual
         const [pedidoExistente] = await conexao.promise().query(
             "SELECT id_pedido, id_usuario, estado FROM pedidos WHERE id_pedido = ?",
             [pedidoId]
@@ -946,9 +998,21 @@ router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Admi
             return res.status(404).json({ mensagem: "Pedido não encontrado" });
         }
 
-        // Se não for admin, verificar se o usuário tem permissão para alterar o pedido
+        const statusAtual = pedidoExistente[0].estado;
+
+        // Validar se o status existe
+        if (!Object.values(STATUS_PEDIDO).includes(status)) {
+            return res.status(400).json({ mensagem: "Status inválido" });
+        }
+
+        // Validar transição
+        const validacao = validarTransicaoStatus(statusAtual, status, tipoUsuario);
+        if (!validacao.valido) {
+            return res.status(400).json({ mensagem: validacao.motivo });
+        }
+
+        // Verificar permissão (se não for admin)
         if (tipoUsuario !== 'Administrador') {
-            // Verificar se o usuário é o vendedor de algum produto do pedido
             const [produtosVendedor] = await conexao.promise().query(`
                 SELECT COUNT(*) as count 
                 FROM itens_pedido ip 
@@ -957,34 +1021,29 @@ router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Admi
             `, [pedidoId, usuarioId]);
 
             if (produtosVendedor[0].count === 0) {
-                return res.status(403).json({ mensagem: "Você não tem permissão para alterar este pedido" });
+                return res.status(403).json({ mensagem: "Sem permissão para alterar este pedido" });
             }
         }
 
-        // Atualizar o status do pedido
+        // Atualizar status
         const [resultado] = await conexao.promise().query(
             "UPDATE pedidos SET estado = ?, data_atualizacao = NOW() WHERE id_pedido = ?",
             [status, pedidoId]
         );
 
         if (resultado.affectedRows === 0) {
-            return res.status(500).json({ mensagem: "Erro ao atualizar status do pedido" });
+            return res.status(500).json({ mensagem: "Erro ao atualizar status" });
         }
 
-        // Buscar o pedido atualizado para retornar
-        const [pedidoAtualizado] = await conexao.promise().query(
-            "SELECT id_pedido, estado, data_pedido, data_atualizacao FROM pedidos WHERE id_pedido = ?",
-            [pedidoId]
-        );
+        res.json({ mensagem: "Status atualizado com sucesso" });
 
-        res.json({ 
-            mensagem: "Status do pedido atualizado com sucesso",
-            pedido: pedidoAtualizado[0]
-        });
     } catch (error) {
-        console.log(error);
-        res.status(500).json({ mensagem: "Erro ao atualizar status do pedido", erro: error });
+        console.error("Erro:", error);
+        res.status(500).json({ mensagem: "Erro interno do servidor" });
     }
 });
+
+
+
 
 module.exports = router;

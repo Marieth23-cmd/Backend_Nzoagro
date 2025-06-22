@@ -1406,7 +1406,7 @@ router.post("/confirmar-entrega/:pedido_id", autenticarToken, async (req, res) =
                 
         await conexao.promise().query(`
             UPDATE pedidos
-            SET estado = 'concluido', data_confirmacao = NOW()
+            SET estado = 'entregue', data_confirmacao = NOW()
             WHERE id_pedido = ?
         `, [pedido_id]);
           
