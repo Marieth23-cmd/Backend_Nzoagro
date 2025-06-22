@@ -131,8 +131,4 @@ router.get("/nao-lidas/quantidade", autenticarToken, async (req, res) => {
 });
 
 
-
-
-
-
 module.exports = router;
