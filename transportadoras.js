@@ -559,7 +559,6 @@ router.get("/minhas-notificacoes", autenticarToken, async (req, res) => {
 
 
 
-
 router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
     try {
         // Busca pedidos em trânsito para coleta nas províncias onde a transportadora tem filiais
@@ -579,12 +578,23 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
                 ep.provincia,
                 ep.referencia,
                 ep.numero as cliente_numero,
-                COUNT(ip.id_itens_de_pedido) as total_itens,
-                SUM(ip.quantidade_comprada) as total_quantidade
+                COUNT(DISTINCT ip.id_itens_de_pedido) as total_itens,
+                SUM(ip.quantidade_comprada) as total_quantidade,
+                -- Detalhes dos produtos com peso
+                GROUP_CONCAT(
+                    CONCAT(
+                        prod.nome, '|',
+                        ip.quantidade_comprada, '|',
+                        est.Unidade, '|',
+                        prod.peso_kg
+                    ) SEPARATOR ';;'
+                ) as produtos_detalhes
             FROM pedidos p
             JOIN usuarios u ON p.id_usuario = u.id_usuario
             JOIN endereco_pedidos ep ON p.id_pedido = ep.id_pedido
             JOIN itens_pedido ip ON p.id_pedido = ip.pedidos_id
+            JOIN produtos prod ON ip.id_produtos = prod.id_produtos
+            JOIN estoque est ON prod.id_produtos = est.produto_id
             WHERE p.estado = 'em trânsito'
               AND ep.provincia IN (
                 SELECT DISTINCT provincia 
@@ -613,16 +623,48 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
         `, [transportadora_id, transportadora_id]);
 
         if (pedidosProntos.length === 0) {
-            return res.status(404).json({ 
-                mensagem: "Nenhum pedido em trânsit encontrado.",
+            return res.status(404).json({
+                mensagem: "Nenhum pedido em trânsito encontrado.",
                 pedidos: []
             });
         }
 
-        res.json({ 
+        // Processar os detalhes dos produtos
+        const pedidosProcessados = pedidosProntos.map(pedido => {
+            const produtos = [];
+            let pesoTotalPedido = 0;
+            
+            if (pedido.produtos_detalhes) {
+                const produtosArray = pedido.produtos_detalhes.split(';;');
+                produtosArray.forEach(produtoStr => {
+                    const [nome, quantidade, unidade, peso_kg] = produtoStr.split('|');
+                    const pesoUnitario = parseFloat(peso_kg) || 0;
+                    const quantidadeProduto = parseInt(quantidade);
+                    const pesoTotalProduto = pesoUnitario * quantidadeProduto;
+                    
+                    pesoTotalPedido += pesoTotalProduto;
+                    
+                    produtos.push({
+                        nome_produto: nome,
+                        quantidade: quantidadeProduto,
+                        unidade: unidade,
+                        peso_kg: pesoUnitario,
+                        peso_total: pesoTotalProduto
+                    });
+                });
+            }
+            
+            return {
+                ...pedido,
+                produtos: produtos,
+                peso_total_pedido: pesoTotalPedido
+            };
+        });
+
+        res.json({
             mensagem: "Pedidos em trânsito para coleta",
-            total: pedidosProntos.length,
-            pedidos: pedidosProntos 
+            total: pedidosProcessados.length,
+            pedidos: pedidosProcessados 
         });
 
     } catch (erro) {
@@ -630,6 +672,5 @@ router.get("/pedidos-prontos", autenticarToken, async (req, res) => {
         res.status(500).json({ erro: "Erro ao buscar pedidos em trânsito." });
     }
 });
-
 
 module.exports = router;

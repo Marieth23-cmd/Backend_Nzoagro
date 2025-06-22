@@ -1375,6 +1375,7 @@ router.post("/simular-pagamento", autenticarToken, async (req, res) => {
 router.post("/confirmar-entrega/:pedido_id", autenticarToken, async (req, res) => {
     const { pedido_id } = req.params;
     const usuario_id = req.usuario.id_usuario;
+    console.log("entrou na função")
 
     try {
         // 1. Verificar se foi pago
@@ -1434,6 +1435,7 @@ router.post("/confirmar-entrega/:pedido_id", autenticarToken, async (req, res) =
         });
 
     } catch (error) {
+        console.log("erro ao confirmar entrega:" ,error)
         res.status(500).json({ message: "Erro ao confirmar entrega", detalhes: error });
     }
 });
