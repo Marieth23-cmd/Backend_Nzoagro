@@ -141,8 +141,7 @@ router.post("/aceitar-entrega", autenticarToken, async (req, res) => {
 });
 
 
- 
-router.get("/minhas-entregas", autenticarToken, async (req, res) => {
+ router.get("/minhas-entregas", autenticarToken, async (req, res) => {
     const transportadora_id = req.usuario.id_usuario;
     try {
         const [entregas] = await conexao.promise().query(
@@ -153,21 +152,24 @@ router.get("/minhas-entregas", autenticarToken, async (req, res) => {
                 e.endereco as endereco_entrega,
                 e.contato_cliente,
                 e.observacoes,
+                e.transportadora,
                 p.valor_total,
                 u.nome as nome_cliente
             FROM entregas e
             LEFT JOIN pedidos p ON e.pedidos_id = p.id_pedido
-            LEFT JOIN usuarios u ON p.cliente_id = u.id_usuario
+            LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
             WHERE e.transportadora_id = ?`,
             [transportadora_id]
         );
+        
+        console.log('🔍 DEBUG ENTREGAS:', entregas.slice(0, 2)); // Log das primeiras 2 entregas
+        
         res.json({ entregas });
     } catch (error) {
         console.log("erro ao buscar minhas entregas:", error);
         res.status(500).json({ erro: "Erro ao buscar entregas." });
     }
 });
-
 
 router.get("/entregas-pendentes", autenticarToken, async (req, res) => {
     const transportadora_id = req.usuario.id_usuario;
