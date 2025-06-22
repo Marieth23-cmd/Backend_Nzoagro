@@ -922,12 +922,6 @@ router.get("/exportar/vendas/csv", autenticarToken, autorizarUsuario(["Administr
 });
 
 
-
-// ============================================
-// BACKEND NODE.JS - Cole no seu arquivo de rotas
-// ============================================
-
-// 1. ADICIONE estas constantes no INÍCIO do arquivo:
 const STATUS_PEDIDO = {
     PENDENTE: 'pendente',
     CONFIRMADO: 'confirmado', 
@@ -980,7 +974,6 @@ function validarTransicaoStatus(statusAtual, novoStatus, tipoUsuario) {
     return { valido: true };
 }
 
-// 2. SUBSTITUA sua rota atual por esta:
 router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Administrador", "Fornecedor", "Agricultor"]), async (req, res) => {
     const { pedidoId } = req.params;
     const { status } = req.body;
@@ -1011,7 +1004,7 @@ router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Admi
             return res.status(400).json({ mensagem: validacao.motivo });
         }
 
-        // Verificar permissão (se não for admin)
+        // Verificar permissão 
         if (tipoUsuario !== 'Administrador') {
             const [produtosVendedor] = await conexao.promise().query(`
                 SELECT COUNT(*) as count 
@@ -1032,7 +1025,7 @@ router.put("/pedidos/:pedidoId/status", autenticarToken, autorizarUsuario(["Admi
         );
 
         if (resultado.affectedRows === 0) {
-            return res.status(500).json({ mensagem: "Erro ao atualizar status" });
+            return res.status(500).json({ mensagem: "Erro ao atualizar status . Pedido não " });
         }
 
         res.json({ mensagem: "Status atualizado com sucesso" });
