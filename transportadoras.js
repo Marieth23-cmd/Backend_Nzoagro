@@ -150,7 +150,7 @@ router.post("/aceitar-entrega", autenticarToken, async (req, res) => {
                 e.data_entrega,
                 e.estado_entrega,
                 e.endereco as endereco_entrega,
-                e.contato_cliente,
+                e.contacto_cliente,
                 e.observacoes,
                 e.transportadora,
                 p.valor_total,
